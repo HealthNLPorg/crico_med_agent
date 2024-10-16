@@ -1,0 +1,2 @@
+Any text indicating the specific circumstances for the instruction associated with the medication – e.g. when and why to follow the instruction. The text associated with the instruction condition can be in the same sentence or in a different sentence or it can be a section heading. Span the most specific text that signals InstructionCondition. The InstructionCondition can be expressed in an If-clause or statements like “Current Medications”.
+If there is text indicating some instructions but no specific medication mentioned, ignore that instruction text.

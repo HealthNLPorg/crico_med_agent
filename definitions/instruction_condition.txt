@@ -1,0 +1,5 @@
+A medication instruction condition indicates the specific circumstances for the medication instruction, e.g. when and why to use the medication as instructed.
+The text associated with the medication instruction condition can be in the same sentence or in a different sentence than the medication or the medication instruction or it can be a section heading.
+Span the most specific text that signals the medication instruction condition.
+The medication instruction condition can be expressed in an If-clause or statements like “Current Medications”.
+If there is text indicating some instructions but no specific medication mentioned, ignore that instruction text.

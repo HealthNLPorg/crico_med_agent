@@ -1,0 +1,1 @@
+A medication instruction is any text that indicates what do with a medication.
