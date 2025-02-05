@@ -1,22 +1,18 @@
 import pandas as pd
+import os
 
 
 class AnaforaAnnotation:
-    self.entities = []
-
     def __init__(self, entities: list[AnaforaEntity]) -> None:
         self.entities = entities
 
     def __str__(self) -> str:
-        return ("<data>\n", "</data>")
+        return "<data>\n" "</data>"
 
 
 class AnaforaEntity:
-    self.anafora_id = -1
-    self.span = (-1, -1)
-    self.filename = "__NO_ASSOCIATED_FILE__"
-
     def __init__(self, span: str, filename: str) -> None:
+        self.anafora_id = -1
         self.span = span
         self.filename = filename
 
@@ -25,9 +21,11 @@ class AnaforaEntity:
 
 
 class Medication(AnaforaEntity):
-    self.instructions = []
-    self.cuis = []
-    self.tuis = []
+    def __init__(self, span: str, filename: str) -> None:
+        super().__init__(span, filename)
+        self.instructions: list[Instruction] = []
+        self.cuis: list[str] = []
+        self.tuis: list[str] = []
 
     def __str__(self) -> str:
         # to return the XML entry
@@ -37,8 +35,14 @@ class Medication(AnaforaEntity):
         )
         return ""
 
-    def set_instructions(instructions: list[Instruction]) -> None:
+    def set_instructions(self, instructions: list[Instruction]) -> None:
         self.instructions = instructions
+
+    def set_cuis(self, cui_str: str) -> None:
+        self.cuis = cui_str.split(",")
+
+    def set_tuis(self, tui_str: str) -> None:
+        self.tuis = tui_str.split(",")
 
 
 class Instruction(AnaforaEntity):
@@ -47,13 +51,13 @@ class Instruction(AnaforaEntity):
 
     def __str__(self) -> str:
         return (
-            "<entity>\n",
-            f"<id>{self.get_id_str()}</id>\n",
-            f"<span>{self.span[0],self.span[1]}</span>\n",
-            "<type>InstructionCondition</type>\n",
-            "<parentsType>Attributes_medication</parentsType>\n",
-            "<properties/>\n",
-            "</entity>\n",
+            "<entity>\n"
+            f"<id>{self.get_id_str()}</id>\n"
+            f"<span>{self.span[0],self.span[1]}</span>\n"
+            "<type>InstructionCondition</type>\n"
+            "<parentsType>Attributes_medication</parentsType>\n"
+            "<properties/>\n"
+            "</entity>\n"
         )
 
 
