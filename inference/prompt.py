@@ -7,10 +7,12 @@ import re
 from itertools import chain
 from time import time
 from typing import Callable, Dict, Iterable, List, Tuple, cast
-from .text_engineering import serialize_whitespace, deserialize_whitespace
+
 import pandas as pd
 from datasets import Dataset, load_dataset
 from transformers import pipeline
+
+from .text_engineering import deserialize_whitespace, serialize_whitespace
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(
@@ -163,9 +165,8 @@ def main() -> None:
         batch["output"] = seqgen_pipe(batch["text"])
         return batch
 
-    query_dataset = (
-        query_dataset.map(format_chat)
-        .map(predict, batched=True, batch_size=128)
+    query_dataset = query_dataset.map(format_chat).map(
+        predict, batched=True, batch_size=128
     )
     query_dataframe = query_dataset.to_pandas()
     query_dataframe.to_csv(tsv_out_path, sep="\t", index=False)
@@ -281,8 +282,6 @@ def zero_shot_prompt(system_prompt: str, query: str) -> List[Message]:
         {"role": "user", "content": query},
     ]
     return messages
-
-
 
 
 def few_shot_prompt(
