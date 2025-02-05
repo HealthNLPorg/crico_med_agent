@@ -54,7 +54,7 @@ def is_valid(frame: pd.DataFrame) -> bool:
         return re.sub(
             "</?medication>",
             "",
-            deserialize_whitespace(row[f"{annotation_type} window"]),
+            deserialize_whitespace(row[f"serialized {annotation_type}"]),
         )
 
     def window_length_is_valid(row: pd.Series) -> bool:
@@ -82,8 +82,26 @@ def is_valid(frame: pd.DataFrame) -> bool:
         return False
 
     def deserialized_medication_indices_are_valid(row: pd.Series) -> bool:
-        cas_level_begin, cas_level_end = row["medication offsets"]
+        cas_level_medication_begin, cas_level_medication_end = row["medication offsets"]
+        cas_level_window_begin, _ = row["window offsets"]
+        local_medication_begin = cas_level_medication_begin - cas_level_window_begin
+        local_medication_end = cas_level_medication_end - cas_level_window_begin
+        tagged_window_text = deserialize_whitespace(row["serialized window"])
+        parts_untagged = re.split("</?medication>", tagged_window_text)
+        untagged_window_text = re.sub("</?medication>", "", tagged_window_text)
+        return (
+            untagged_window_text[local_medication_begin:local_medication_end]
+            == parts_untagged[1]
+        )
+
+    medication_index_validity = frame.apply(
+        deserialized_medication_indices_are_valid, axis=1
+    )
+    if not all(medication_index_validity):
+        logger.info("Issues with medication index validity")
+        logger.info(frame.loc[medication_length_validity])
         return False
+    return True
 
 
 def get_frames(tsv_dir: str) -> Iterable[pd.DataFrame]:
