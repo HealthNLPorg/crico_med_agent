@@ -5,8 +5,7 @@ from typing import Iterable, cast
 
 import pandas as pd
 
-from .anafora_data import (AnaforaDocument, Instruction, InstructionCondition,
-                           Medication)
+from anafora_data import AnaforaDocument, Instruction, InstructionCondition, Medication
 
 
 def get_medication_annotation(row: pd.Series) -> Medication:

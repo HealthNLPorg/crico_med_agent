@@ -12,7 +12,7 @@ import pandas as pd
 from datasets import Dataset, load_dataset
 from transformers import pipeline
 
-from .text_engineering import deserialize_whitespace, serialize_whitespace
+from text_engineering import deserialize_whitespace, serialize_whitespace
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(
@@ -101,8 +101,17 @@ def main() -> None:
     query_dataset = load_dataset(
         "csv",
         sep="\t",
-        data_files=os.listdir(args.query_dir) if args.query_dir else args.query_files,
+        data_files=args.query_files,  # check cnlpt to see how to do this with splits (
+        #     [
+        #         os.path.join(args.query_dir, fn)
+        #         for fn in os.listdir(args.query_dir)
+        #         if fn.endswith("tsv")
+        #     ]
+        #     if args.query_dir
+        #     else args.query_files
+        # ),
     )
+    print(query_dataset)
     query_dataset = query_dataset["train"]
 
     def few_shot_with_examples(
@@ -153,7 +162,10 @@ def main() -> None:
     def format_chat(sample: dict) -> dict:
         return {
             "text": seqgen_pipe.tokenizer.apply_chat_template(
-                get_prompt(system_prompt, sample["sentence"]),
+                # get_prompt(system_prompt, sample["sentence"]),
+                get_prompt(
+                    system_prompt, deserialize_whitespace(sample["serialized window"])
+                ),
                 tokenize=False,
                 add_generation_prompt=False,
                 truncate=True,
@@ -165,9 +177,16 @@ def main() -> None:
         batch["output"] = seqgen_pipe(batch["text"])
         return batch
 
-    query_dataset = query_dataset.map(format_chat).map(
-        predict, batched=True, batch_size=128
+    def serialize_output(batch):
+        batch["serialized output"] = [serialize_whitespace(output["generated_text"].split("<|eot_id|>assistant")[-1]) for output in batch["output"]]
+        return batch
+
+    query_dataset = (
+        query_dataset.map(format_chat)
+        .map(predict, batched=True, batch_size=8)  # , batch_size=128
+        .map(serialize_output)
     )
+    query_dataset.remove_columns(["text", "output"])
     query_dataframe = query_dataset.to_pandas()
     query_dataframe.to_csv(tsv_out_path, sep="\t", index=False)
 
