@@ -1,5 +1,4 @@
 import argparse
-import json
 import logging
 import os
 import pathlib
@@ -115,7 +114,7 @@ def main() -> None:
     query_dataset = query_dataset["train"]
 
     def few_shot_with_examples(
-        examples: Iterable[Tuple[str, str]]
+        examples: Iterable[Tuple[str, str]],
     ) -> Callable[[str, str], List[Message]]:
         def _few_shot_prompt(s, q):
             return few_shot_prompt(system_prompt=s, query=q, examples=examples)
@@ -149,7 +148,7 @@ def main() -> None:
         max_new_tokens=args.max_new_tokens,
     )
     end = time()
-    logger.info(f"Loading model took {end-start} seconds")
+    logger.info(f"Loading model took {end - start} seconds")
     out_dir = args.output_dir
     out_fn_stem = pathlib.Path(
         args.query_dir
@@ -178,7 +177,12 @@ def main() -> None:
         return batch
 
     def serialize_output(batch):
-        batch["serialized output"] = [serialize_whitespace(output["generated_text"].split("<|eot_id|>assistant")[-1]) for output in batch["output"]]
+        batch["serialized output"] = [
+            serialize_whitespace(
+                output["generated_text"].split("<|eot_id|>assistant")[-1]
+            )
+            for output in batch["output"]
+        ]
         return batch
 
     query_dataset = (
