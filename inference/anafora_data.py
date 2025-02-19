@@ -37,7 +37,7 @@ class Instruction(AnaforaEntity):
         return (
             "<entity>\n"
             f"<id>{self.get_id_str()}</id>\n"
-            f"<span>{self.span[0], self.span[1]}</span>\n"
+            f"<span>{self.span[0]},{self.span[1]}</span>\n"
             "<type>Instruction</type>\n"
             "<parentsType>Attributes_medication</parentsType>\n"
             "<properties/>\n"
@@ -50,7 +50,7 @@ class InstructionCondition(AnaforaEntity):
         return (
             "<entity>\n"
             f"<id>{self.get_id_str()}</id>\n"
-            f"<span>{self.span[0], self.span[1]}</span>\n"
+            f"<span>{self.span[0]},{self.span[1]}</span>\n"
             "<type>InstructionCondition</type>\n"
             "<parentsType>Attributes_medication</parentsType>\n"
             "<properties/>\n"
@@ -112,7 +112,7 @@ class Medication(AnaforaEntity):
         return (
             "<entity>\n"
             f"<id>{self.get_id_str()}</id>\n"
-            f"<span>{self.span[0], self.span[1]}</span>\n"
+            f"<span>{self.span[0]},{self.span[1]}</span>\n"
             "<type>Medications/Drugs</type>\n"
             "<parentsType>UMLSEntities</parentsType>\n"
             "<properties>\n"
@@ -162,15 +162,16 @@ class AnaforaDocument:
     def build_raw_string(self) -> str:
         entities_str = "".join(str(entity) for entity in self.entities)
         return (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
             "<data>\n"
             "<info>\n"
             f"<savetime>{timestamp()}</savetime>\n"
             "<progress>completed</progress>\n"
-            '<schema path="./" protocol="file">temporal.schema.xml</schema>'
+            '<schema path="./" protocol="file">temporal.schema.xml</schema>\n'
             "<annotations>\n"
             f"{entities_str}"
-            "</annotations>"
-            "</info>"
+            "</annotations>\n"
+            "</info>\n"
             "</data>"
         )
 
