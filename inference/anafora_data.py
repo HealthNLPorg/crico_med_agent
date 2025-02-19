@@ -1,11 +1,29 @@
 import datetime
 import os
 from typing import Iterable
+from enum import Enum
 
 import pytz
 from lxml import etree
 from lxml.etree import _Element  # for mypy
 
+class Progress(Enum):
+    completed = 0
+    inprogress = 1
+
+    def file_ext(self) -> str:
+        match self:
+            case Progress.completed:
+                return "completed"
+            case Progress.inprogress:
+                return "inprogress"
+
+    def xml_tag(self) -> str:
+        match self:
+            case Progress.completed:
+                return "completed"
+            case Progress.inprogress:
+                return "in-progress"
 
 def timestamp() -> str:
     current_time = datetime.datetime.now(pytz.timezone("America/New_York"))
@@ -117,7 +135,7 @@ class Medication(AnaforaEntity):
             "<parentsType>UMLSEntities</parentsType>\n"
             "<properties>\n"
             f"{properties_str}"
-            "</properties>"
+            "</properties>\n"
             "</entity>\n"
         )
 
@@ -145,7 +163,7 @@ class AnaforaDocument:
         filename: str,
         schema: str = "crico",
         annotator: str = "llama",
-        progress: str = "completed",
+        progress: Progress = Progress.inprogress,
     ) -> None:
         self.filename = filename
         self.schema = schema
@@ -157,21 +175,21 @@ class AnaforaDocument:
         self.entities = AnaforaDocument.order_entities(entities)
 
     def get_out_fn(self) -> str:
-        return f"{self.filename}.{self.schema}.{self.annotator}.{self.progress}.xml"
+        return f"{self.filename}.{self.schema}.{self.annotator}.{self.progress.file_ext()}.xml"
 
     def build_raw_string(self) -> str:
         entities_str = "".join(str(entity) for entity in self.entities)
         return (
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            # '<?xml version="1.0" encoding="UTF-8"?>\n'
             "<data>\n"
             "<info>\n"
             f"<savetime>{timestamp()}</savetime>\n"
-            "<progress>completed</progress>\n"
+            f"<progress>{self.progress.xml_tag()}</progress>\n"
+            "</info>\n"
             '<schema path="./" protocol="file">temporal.schema.xml</schema>\n'
             "<annotations>\n"
             f"{entities_str}"
             "</annotations>\n"
-            "</info>\n"
             "</data>"
         )
 
