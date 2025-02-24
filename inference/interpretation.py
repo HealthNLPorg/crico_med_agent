@@ -85,6 +85,8 @@ def get_local_spans(
 
 def parse_attributes(row: pd.Series) -> list[Instruction | InstructionCondition]:
     filename = row["filename"]
+    if row["result"].lower() == "none":
+        return []
     local_spans = get_local_spans(
         # row["output"], {"instruction", "instructionCondition"}
         row["result"],
@@ -116,8 +118,9 @@ def output_to_result(row: pd.Series) -> str:
 def process(input_tsv: str, output_dir: str) -> None:
     raw_frame = pd.read_csv(input_tsv, sep="\t")
     raw_frame["result"] = raw_frame.apply(output_to_result, axis=1)
-    filtered_frame = raw_frame.loc[raw_frame["result"].str.lower() != "none"]
-    to_anafora_files(filtered_frame, output_dir)
+    # filtered_frame = raw_frame.loc[raw_frame["result"].str.lower() != "none"]
+    # to_anafora_files(filtered_frame, output_dir)
+    to_anafora_files(raw_frame, output_dir)
 
 
 def main() -> None:

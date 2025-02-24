@@ -198,7 +198,7 @@ class AnaforaDocument:
         def span(anafora_entity: AnaforaEntity) -> tuple[int, int]:
             return anafora_entity.span
 
-        ordered_entities = sorted(entities, key=span, reverse=True)
+        ordered_entities = sorted(entities, key=span)
         # Anafora XML starts from 1 not 0
         for anafora_id, anafora_entity in enumerate(ordered_entities, start=1):
             anafora_entity.set_id(anafora_id)
