@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import os
 import pathlib
@@ -50,7 +51,10 @@ parser.add_argument("--model_name", choices=["llama2", "llama3", "mixtral", "qwe
 parser.add_argument(
     "--max_new_tokens",
     type=int,
-    help="1 for classification, on the order of 128 for BIO, on the order of 1024 for free text analysis and explanation",
+)
+parser.add_argument(
+    "--batch_size",
+    type=int,
 )
 parser.add_argument(
     "--query_files",
@@ -161,9 +165,8 @@ def main() -> None:
     def format_chat(sample: dict) -> dict:
         return {
             "text": seqgen_pipe.tokenizer.apply_chat_template(
-                # get_prompt(system_prompt, sample["sentence"]),
                 get_prompt(
-                    system_prompt, deserialize_whitespace(sample["serialized window"])
+                    system_prompt, deserialize_whitespace(sample["section_body"])
                 ),
                 tokenize=False,
                 add_generation_prompt=False,
@@ -187,12 +190,42 @@ def main() -> None:
 
     query_dataset = (
         query_dataset.map(format_chat)
-        .map(predict, batched=True, batch_size=8)  # , batch_size=128
+        .map(predict, batched=True, batch_size=args.batch_size)
         .map(serialize_output)
+        .map(parse_output)
+        .filter(non_empty_json)
+        .filter(meds_non_hallucinatory)
+        .map(insert_mentions)
+        .map(clean_section)
+        .remove_columns(["text", "output", "json_output"])
     )
     query_dataset.remove_columns(["text", "output"])
     query_dataframe = query_dataset.to_pandas()
     query_dataframe.to_csv(tsv_out_path, sep="\t", index=False)
+
+
+def parse_output(sample: dict) -> dict:
+    model_answer = sample["output"][0]["generated_text"].split("assistant")[-1].strip()
+    sample["json_output"] = json.dumps(try_json(model_answer))
+    return sample
+
+
+def try_json(s: str) -> dict:
+    try:
+        return json.loads(s)
+    except Exception:
+        return {}
+
+def meds_non_hallucinatory(sample: dict) -> bool:
+    try:
+        gene = json.loads(sample["json_output"]).get("GENE")
+        return gene is not None and "".join(gene).lower() in sample["sentence"].lower()
+    except Exception:
+        logger.warning(f"Issue with JSON sample {sample['json_output']}")
+        return False
+
+def non_empty_json(sample: dict) -> bool:
+    return len(sample["json_output"]) > 0
 
 
 def empty_prompt(system_prompt: str, query: str) -> List[Message]:
