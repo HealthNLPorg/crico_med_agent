@@ -194,10 +194,10 @@ def main() -> None:
         .map(serialize_output)
         .map(parse_output)
         .filter(non_empty_json)
-        .filter(meds_non_hallucinatory)
+        .filter(medication_non_hallucinatory)
         .map(insert_mentions)
         .map(clean_section)
-        .remove_columns(["text", "output", "json_output"])
+        .remove_columns(["text", "output", "json_output", "section_body", "section_id"])
     )
     query_dataset.remove_columns(["text", "output"])
     query_dataframe = query_dataset.to_pandas()
@@ -216,13 +216,15 @@ def try_json(s: str) -> dict:
     except Exception:
         return {}
 
-def meds_non_hallucinatory(sample: dict) -> bool:
+
+def medication_non_hallucinatory(sample: dict) -> bool:
     try:
-        gene = json.loads(sample["json_output"]).get("GENE")
+        gene = json.loads(sample["json_output"]).get("medication")
         return gene is not None and "".join(gene).lower() in sample["sentence"].lower()
     except Exception:
         logger.warning(f"Issue with JSON sample {sample['json_output']}")
         return False
+
 
 def non_empty_json(sample: dict) -> bool:
     return len(sample["json_output"]) > 0
@@ -234,6 +236,21 @@ def empty_prompt(system_prompt: str, query: str) -> List[Message]:
 
 def structure_response(index: int, query: str, answer: str) -> str:
     return f"Query {index}:\n{query}\nAnswer:\n{answer}\n\n"
+
+
+def clean_section(sample: dict) -> dict:
+    sample["section"] = str.title(" ".join(sample["section_id"].split("_")[1:]))
+    return sample
+
+
+def insert_mentions(sample: dict) -> dict:
+    mention_components = {"GENE", "STATEMENT", "SYNTAX_N", "SYNTAX_P"}
+    components_dict = json.loads(sample["json_output"])
+    for mention_component in mention_components:
+        sample[mention_component] = "".join(
+            components_dict.get(mention_component, "__UNK__")
+        )
+    return sample
 
 
 def basename_no_ext(fn: str) -> str:
