@@ -180,7 +180,7 @@ def main() -> None:
         return batch
 
     def serialize_output(batch):
-        batch["serialized output"] = [
+        batch["serialized_output"] = [
             serialize_whitespace(
                 output["generated_text"].split("<|eot_id|>assistant")[-1]
             )
@@ -194,10 +194,10 @@ def main() -> None:
         .map(serialize_output)
         .map(parse_output)
         .filter(non_empty_json)
-        .filter(medication_non_hallucinatory)
-        .map(insert_mentions)
-        .map(clean_section)
-        .remove_columns(["text", "output", "json_output", "section_body", "section_id"])
+        # .filter(medication_non_hallucinatory)
+        # .map(insert_mentions)
+        # .map(clean_section)
+        # .remove_columns(["text", "output", "json_output", "section_body", "section_identifier"])
     )
     query_dataset.remove_columns(["text", "output"])
     query_dataframe = query_dataset.to_pandas()
@@ -218,11 +218,17 @@ def try_json(s: str) -> dict:
 
 
 def medication_non_hallucinatory(sample: dict) -> bool:
+    def normalize(text: str, delim: str = "") -> str:
+        return delim.join(text.lower().split())
+    raw_medication = json.loads(sample["json_output"]).get("medication")
     try:
-        gene = json.loads(sample["json_output"]).get("medication")
-        return gene is not None and "".join(gene).lower() in sample["sentence"].lower()
+        return raw_medication is not None and normalize(raw_medication) in normalize(
+            sample["section_body"], " "
+        )
     except Exception:
-        logger.warning(f"Issue with JSON sample {sample['json_output']}")
+        logger.warning(
+            f"Issue with JSON sample {sample['json_output']} compared against {sample['section_body']}"
+        )
         return False
 
 
@@ -239,7 +245,7 @@ def structure_response(index: int, query: str, answer: str) -> str:
 
 
 def clean_section(sample: dict) -> dict:
-    sample["section"] = str.title(" ".join(sample["section_id"].split("_")[1:]))
+    sample["section"] = str.title(" ".join(sample["section_identifier"].split("_")[1:]))
     return sample
 
 
