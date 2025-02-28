@@ -220,6 +220,7 @@ def try_json(s: str) -> dict:
 def medication_non_hallucinatory(sample: dict) -> bool:
     def normalize(text: str, delim: str = "") -> str:
         return delim.join(text.lower().split())
+
     raw_medication = json.loads(sample["json_output"]).get("medication")
     try:
         return raw_medication is not None and normalize(raw_medication) in normalize(
@@ -250,7 +251,7 @@ def clean_section(sample: dict) -> dict:
 
 
 def insert_mentions(sample: dict) -> dict:
-    mention_components = {"GENE", "STATEMENT", "SYNTAX_N", "SYNTAX_P"}
+    mention_components = {"medication", "instructions", "conditions"}
     components_dict = json.loads(sample["json_output"])
     for mention_component in mention_components:
         sample[mention_component] = "".join(
