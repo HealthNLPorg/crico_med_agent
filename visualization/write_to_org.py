@@ -1,4 +1,6 @@
 import os
+from ast import literal_eval
+import json
 import textwrap
 import pathlib
 import pandas as pd
@@ -56,7 +58,17 @@ def process(excel_input: str, output_dir: str) -> None:
     output_path = os.path.join(output_dir, f"{input_basename}.org")
 
     def get_parsed_section(row: pd.Series) -> ParsedSection:
-        return ParsedSection(row.section_body, row.section_identifier, row.json_output)
+        try:
+            raw_json = json.loads(row.json_output)
+            parsed_json = raw_json if isinstance(raw_json, list) else []
+        except Exception:
+            try:
+                raw_json = literal_eval(row.json_output)
+                parsed_json = raw_json if isinstance(raw_json, list) else []
+            except Exception:
+                parsed_json = []
+        finally:
+            return ParsedSection(row.section_body, row.section_identifier, parsed_json)
 
     with open(output_path, mode="w") as f:
         for fn, fn_frame in df.groupby(["filename"]):
