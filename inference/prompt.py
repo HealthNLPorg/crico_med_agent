@@ -6,7 +6,7 @@ import pathlib
 import re
 from itertools import chain
 from time import time
-from typing import Callable, Dict, Iterable, List, Tuple, cast
+from typing import Callable, Iterable, cast
 
 import pandas as pd
 from datasets import Dataset, load_dataset
@@ -77,7 +77,7 @@ name2path = {
 }
 
 # {role: {system|user|assistant}, content: ...}
-Message = Dict[str, str]
+Message = dict[str, str]
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +118,8 @@ def main() -> None:
     query_dataset = query_dataset["train"]
 
     def few_shot_with_examples(
-        examples: Iterable[Tuple[str, str]],
-    ) -> Callable[[str, str], List[Message]]:
+        examples: Iterable[tuple[str, str]],
+    ) -> Callable[[str, str], list[Message]]:
         def _few_shot_prompt(s, q):
             return few_shot_prompt(system_prompt=s, query=q, examples=examples)
 
@@ -237,7 +237,7 @@ def non_empty_json(sample: dict) -> bool:
     return len(sample["json_output"]) > 0
 
 
-def empty_prompt(system_prompt: str, query: str) -> List[Message]:
+def empty_prompt(system_prompt: str, query: str) -> list[Message]:
     return []
 
 
@@ -286,7 +286,7 @@ def get_query_dataset(queries_file_path: str) -> Dataset:
                 ),
             )
 
-            def with_whitespace() -> Iterable[Dict[str, str]]:
+            def with_whitespace() -> Iterable[dict[str, str]]:
                 for query in raw_queries:
                     yield {"text": deserialize_whitespace(query)}
 
@@ -301,7 +301,7 @@ def get_query_dataset(queries_file_path: str) -> Dataset:
     return queries
 
 
-def get_examples(examples_file_path: str) -> List[Tuple[str, str]]:
+def get_examples(examples_file_path: str) -> list[tuple[str, str]]:
     suffix = pathlib.Path(examples_file_path).suffix.lower()
     match suffix.strip():
         case ".tsv":
@@ -325,8 +325,8 @@ def get_examples(examples_file_path: str) -> List[Tuple[str, str]]:
     return examples
 
 
-def parse_input_output(examples_file_path: str) -> List[Tuple[str, str]]:
-    def parse_example(raw_example: str) -> Tuple[str, str]:
+def parse_input_output(examples_file_path: str) -> list[tuple[str, str]]:
+    def parse_example(raw_example: str) -> tuple[str, str]:
         result = tuple(
             elem.strip()
             for elem in re.split("input:|output:", raw_example)
@@ -346,7 +346,7 @@ def parse_input_output(examples_file_path: str) -> List[Tuple[str, str]]:
 
 def get_document_level_example(
     sample_document_path: str, sample_answer_path: str
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     with open(sample_document_path, mode="rt", encoding="utf-8") as sample_document:
         # not normalizing newlines since those might be useful
         query = sample_document.read()
@@ -356,7 +356,7 @@ def get_document_level_example(
     return (query, answer)
 
 
-def zero_shot_prompt(system_prompt: str, query: str) -> List[Message]:
+def zero_shot_prompt(system_prompt: str, query: str) -> list[Message]:
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": query},
@@ -365,9 +365,9 @@ def zero_shot_prompt(system_prompt: str, query: str) -> List[Message]:
 
 
 def few_shot_prompt(
-    system_prompt: str, query: str, examples: Iterable[Tuple[str, str]]
-) -> List[Message]:
-    def message_pair(ex_query: str, ex_answer: str) -> Tuple[Message, ...]:
+    system_prompt: str, query: str, examples: Iterable[tuple[str, str]]
+) -> list[Message]:
+    def message_pair(ex_query: str, ex_answer: str) -> tuple[Message, ...]:
         return {"role": "user", "content": ex_query}, {
             "role": "assistant",
             "content": ex_answer,
