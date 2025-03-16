@@ -7,7 +7,6 @@ import re
 from itertools import chain
 from time import time
 from typing import Callable, Iterable, cast
-
 from pathlib import Path
 import pandas as pd
 from datasets import Dataset, load_dataset
@@ -162,8 +161,8 @@ def main() -> None:
     ).stem
     tsv_out_fn = f"{out_fn_stem}.tsv"
     tsv_out_path = os.path.join(out_dir, tsv_out_fn)
-    _tsv_out_path = Path(tsv_out_path)
-    _tsv_out_path.mkdir(parents=True, exist_ok=True)
+    _out_dir = Path(out_dir)
+    _out_dir.mkdir(parents=True, exist_ok=True)
 
     def format_chat(sample: dict) -> dict:
         return {

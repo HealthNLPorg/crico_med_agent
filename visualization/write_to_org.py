@@ -16,15 +16,31 @@ parser.add_argument(
     type=str,
 )
 parser.add_argument("--output_dir", type=str)
+parser.add_argument("--parse_type", choices=["json", "xml"])
+
+
+def deserialize(s: str) -> str:
+    return (
+        s.replace("<cn>", "\n")
+        .replace("<cr>", "\r")
+        .replace("<ct>", "\t")
+        .replace("<cf>", "\f")
+    )
 
 
 class ParsedSection:
     def __init__(
-        self, section_body: str, section_identifier: str, json_output: str
+        self,
+        section_body: str,
+        section_identifier: str,
+        parse_matter: str,
+        parse_type: str,
     ) -> None:
         self.section_body = section_body
         self.section_identifier = section_identifier
-        self.json_output = json_output if isinstance(json_output, list) else []
+        self.parse_matter = parse_matter
+        self.parse_type = parse_type
+        # json_output if isinstance(json_output, list) else []
 
     def to_org_node(self, base_depth: int = 2, width: int = 120) -> str:
         def mention_to_str(mention_dict: dict[str, str | list[str]]) -> str:
@@ -42,33 +58,75 @@ class ParsedSection:
                 f"Conditions:\n{list_to_str(mention_dict.get('conditions', []))}"
             )
 
+        match self.parse_type:
+            case "json":
+                json_output = (
+                    self.parse_matter if isinstance(self.parse_matter, list) else []
+                )
+                parsed = (
+                    "\n".join(
+                        (mention_to_str(mention_dict) for mention_dict in json_output)
+                    )
+                    if len(json_output) > 0
+                    else "None"
+                )
+            case "xml":
+                contained = literal_eval(self.parse_matter)[0]
+                parsed = (
+                    contained
+                    if contained is None
+                    else textwrap.fill(deserialize(contained).strip(), width=width)
+                )
         return (
             f"{base_depth * '*'} {self.section_identifier}:\n"
             f"{(base_depth + 1) * '*'} Section Body:\n"
-            f"{textwrap.fill(self.section_body, width=width)}\n"
+            f"{textwrap.fill(deserialize(self.section_body), width=width)}\n"
             f"{(base_depth + 1) * '*'} Model Output:\n"
-            f"{'\n'.join((mention_to_str(mention_dict) for mention_dict in self.json_output)) if len(self.json_output) > 0 else 'None'}\n"
+            f"{parsed}\n"
             f"{(base_depth + 1) * '*'} TODO Error Analysis:\n\n\n"
         )
 
 
-def process(excel_input: str, output_dir: str) -> None:
-    df = pd.read_excel(excel_input)
+def json_parse(row: pd.Series) -> ParsedSection:
+    try:
+        raw_json = json.loads(row.json_output)
+        parsed_json = raw_json if isinstance(raw_json, list) else []
+    except Exception:
+        try:
+            raw_json = literal_eval(row.json_output)
+            parsed_json = raw_json if isinstance(raw_json, list) else []
+        except Exception:
+            parsed_json = []
+    finally:
+        return ParsedSection(
+            row.section_body, row.section_identifier, parsed_json, "json"
+        )
+
+
+def xml_parse(row: pd.Series) -> ParsedSection:
+    return ParsedSection(
+        row.section_body, row.section_identifier, row.serialized_output, "xml"
+    )
+
+
+def process(excel_input: str, output_dir: str, parse_type: str) -> None:
+    df = (
+        pd.read_excel(excel_input)
+        if excel_input.lower().endswith("xlsx")
+        else pd.read_csv(excel_input, sep="\t")
+    )
     input_basename = pathlib.Path(excel_input).stem.strip()
     output_path = os.path.join(output_dir, f"{input_basename}.org")
 
-    def get_parsed_section(row: pd.Series) -> ParsedSection:
-        try:
-            raw_json = json.loads(row.json_output)
-            parsed_json = raw_json if isinstance(raw_json, list) else []
-        except Exception:
-            try:
-                raw_json = literal_eval(row.json_output)
-                parsed_json = raw_json if isinstance(raw_json, list) else []
-            except Exception:
-                parsed_json = []
-        finally:
-            return ParsedSection(row.section_body, row.section_identifier, parsed_json)
+    match parse_type:
+        case "json":
+
+            def get_parsed_section(row):
+                return json_parse(row)
+        case "xml":
+
+            def get_parsed_section(row):
+                return xml_parse(row)
 
     with open(output_path, mode="w") as f:
         for fn, fn_frame in df.groupby(["filename"]):
@@ -80,7 +138,7 @@ def process(excel_input: str, output_dir: str) -> None:
 
 def main() -> None:
     args = parser.parse_args()
-    process(args.excel_input, args.output_dir)
+    process(args.excel_input, args.output_dir, args.parse_type)
 
 
 if __name__ == "__main__":
