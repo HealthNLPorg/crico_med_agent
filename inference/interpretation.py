@@ -26,6 +26,8 @@ parser.add_argument(
     choices=["anafora", "windows"],
     help="Whether stuff is Anafora XML or Windows",
 )
+WINDOW_RADIUS: int = 30
+
 
 def get_medication_annotation(row: pd.Series) -> Medication:
     cas_level_span = literal_eval(row["medication offsets"])
@@ -127,25 +129,40 @@ def anafora_process(input_tsv: str, output_dir: str) -> None:
     # to_anafora_files(filtered_frame, output_dir)
     to_anafora_files(raw_frame, output_dir)
 
+
 def build_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     def serialized_output_to_unique_meds(output: list[str]) -> set[str]:
         raw_output = re.sub("<c[rtnf]>", "", next(output))
         return {med.lower() for med in raw_output.split(",")}
-    def build_med_inds(row: tuple[str, set[str]]) -> set[tuple[int,int]]:
+
+    def build_med_inds(row: tuple[str, set[str]]) -> Iterable[str]:
         section_body, meds = row
+        meds_regex = "|".join(meds)
         normalized_section = section_body.lower()
-        def med_to_inds(med: str) -> Iterable[tuple[int,int]]:
-            token_length = len(med)
-            for begin in re.findall(med, normalized_section):
-                yield begin, begin + token_length
-        return set(chain.from_iterable(med_to_inds(med) for med in meds))
+        boundary = len(normalized_section)
+        for med_match in re.finditer(meds_regex, normalized_section):
+            med_begin, med_end = med_match.span()
+            window_begin = max(0, med_begin - WINDOW_RADIUS)
+            window_end = min(boundary, med_end + WINDOW_RADIUS)
+            opening = normalized_section[window_begin:med_begin]
+            tagged_medication = normalized_section[med_begin:med_end]
+            closing = normalized_section[med_end:window_end]
+            window = (
+                f"...{opening}<medication>{tagged_medication}</medication>{closing}..."
+            )
+            yield window
+
+    section_texts = raw_frame["section_body"].to_list()
+    gross_outputs = raw_frame["serialized_outputs"].to_list()
+    pass
+
 
 def windows_process(input_tsv: str, output_dir: str) -> None:
     raw_frame = pd.read_csv(input_tsv, sep="\t")
     expanded_windows_frame = build_windows(raw_frame)
     expanded_windows_frame.to_csv("./placeholder.tsv", sep="\t")
 
-    
+
 def main() -> None:
     args = parser.parse_args()
     match args.mode:
@@ -153,6 +170,7 @@ def main() -> None:
             anafora_process(args.input_tsv, args.output_dir)
         case "windows":
             windows_process(args.input_tsv, args.output_dir)
+
 
 if __name__ == "__main__":
     main()
