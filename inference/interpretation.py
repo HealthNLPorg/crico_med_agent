@@ -18,9 +18,14 @@ parser.add_argument(
 parser.add_argument(
     "--output_dir",
     type=str,
-    help="Where to output Anafora XML",
+    help="Where to output STUFF",
 )
-
+parser.add_argument(
+    "--mode",
+    type=str,
+    choices=["anafora", "windows"],
+    help="Whether stuff is Anafora XML or Windows",
+)
 
 def get_medication_annotation(row: pd.Series) -> Medication:
     cas_level_span = literal_eval(row["medication offsets"])
@@ -115,18 +120,39 @@ def output_to_result(row: pd.Series) -> str:
     return full_output.split("\nResult:\n")[-1].strip()
 
 
-def process(input_tsv: str, output_dir: str) -> None:
+def anafora_process(input_tsv: str, output_dir: str) -> None:
     raw_frame = pd.read_csv(input_tsv, sep="\t")
     raw_frame["result"] = raw_frame.apply(output_to_result, axis=1)
     # filtered_frame = raw_frame.loc[raw_frame["result"].str.lower() != "none"]
     # to_anafora_files(filtered_frame, output_dir)
     to_anafora_files(raw_frame, output_dir)
 
+def build_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
+    def serialized_output_to_unique_meds(output: list[str]) -> set[str]:
+        raw_output = re.sub("<c[rtnf]>", "", next(output))
+        return {med.lower() for med in raw_output.split(",")}
+    def build_med_inds(row: tuple[str, set[str]]) -> set[tuple[int,int]]:
+        section_body, meds = row
+        normalized_section = section_body.lower()
+        def med_to_inds(med: str) -> Iterable[tuple[int,int]]:
+            token_length = len(med)
+            for begin in re.findall(med, normalized_section):
+                yield begin, begin + token_length
+        return set(chain.from_iterable(med_to_inds(med) for med in meds))
 
+def windows_process(input_tsv: str, output_dir: str) -> None:
+    raw_frame = pd.read_csv(input_tsv, sep="\t")
+    expanded_windows_frame = build_windows(raw_frame)
+    expanded_windows_frame.to_csv("./placeholder.tsv", sep="\t")
+
+    
 def main() -> None:
     args = parser.parse_args()
-    process(args.input_tsv, args.output_dir)
-
+    match args.mode:
+        case "anafora":
+            anafora_process(args.input_tsv, args.output_dir)
+        case "windows":
+            windows_process(args.input_tsv, args.output_dir)
 
 if __name__ == "__main__":
     main()
