@@ -77,6 +77,8 @@ def get_local_spans(
     tag_and_body_capture = f"<({tag_or_body})>({tag_or_body})</{tag_or_body}>"
     current_begin = 0
     step = 0
+    # TODO - revisit and see if this can be replaced with re.finditer
+    # though for now don't fix what isn't broken
     for run in re.split(relevant_tags_capture, tagged_str):
         potential_match = re.search(tag_and_body_capture, run)
         if potential_match is None:
@@ -131,6 +133,12 @@ def anafora_process(input_tsv: str, output_dir: str) -> None:
 
 
 def build_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
+    def get_central_index(med_begin: int, token_index_ls: list[tuple[int, int]]) -> int:
+        def closest(token_ord: int) -> int:
+            return abs(token_index_ls[token_ord][0] - med_begin)
+
+        return min(range(len(token_index_ls)), default=-1, key=closest)
+
     def serialized_output_to_unique_meds(output: list[str]) -> set[str]:
         raw_output = re.sub("<c[rtnf]>", "", next(output))
         return {med.lower() for med in raw_output.split(",")}
@@ -139,11 +147,16 @@ def build_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         section_body, meds = row
         meds_regex = "|".join(meds)
         normalized_section = section_body.lower()
-        boundary = len(normalized_section)
+        token_index_ls = [token.span() for token in re.finditer("\S+", section_body)]
         for med_match in re.finditer(meds_regex, normalized_section):
             med_begin, med_end = med_match.span()
-            window_begin = max(0, med_begin - WINDOW_RADIUS)
-            window_end = min(boundary, med_end + WINDOW_RADIUS)
+            med_central_index = get_central_index(med_begin, token_index_ls)
+            if med_central_index == -1:
+                continue  # I hate this but TODO fix later
+            window_begin = token_index_ls[max(0, med_central_index - WINDOW_RADIUS)][0]
+            window_end = token_index_ls[
+                min(len(token_index_ls) - 1, med_central_index + WINDOW_RADIUS)
+            ][1]
             opening = normalized_section[window_begin:med_begin]
             tagged_medication = normalized_section[med_begin:med_end]
             closing = normalized_section[med_end:window_end]
