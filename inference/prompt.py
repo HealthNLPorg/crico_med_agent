@@ -7,11 +7,10 @@ import re
 from itertools import chain
 from time import time
 from typing import Callable, Iterable, cast
-from pathlib import Path
 import pandas as pd
 from datasets import Dataset, load_dataset
 from transformers import pipeline
-
+from utils import basename_no_ext, mkdir
 from text_engineering import deserialize_whitespace, serialize_whitespace
 
 parser = argparse.ArgumentParser(description="")
@@ -161,8 +160,7 @@ def main() -> None:
     ).stem
     tsv_out_fn = f"{out_fn_stem}.tsv"
     tsv_out_path = os.path.join(out_dir, tsv_out_fn)
-    _out_dir = Path(out_dir)
-    _out_dir.mkdir(parents=True, exist_ok=True)
+    mkdir(out_dir)
 
     def format_chat(sample: dict) -> dict:
         return {
@@ -260,10 +258,6 @@ def insert_mentions(sample: dict) -> dict:
             components_dict.get(mention_component, "__UNK__")
         )
     return sample
-
-
-def basename_no_ext(fn: str) -> str:
-    return pathlib.Path(fn).stem.strip()
 
 
 def get_system_prompt(prompt_file_path: str) -> str:

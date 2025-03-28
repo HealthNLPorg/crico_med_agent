@@ -1,9 +1,10 @@
 import re
+import os
 import argparse
 from ast import literal_eval
 from itertools import chain
 from typing import Iterable, cast
-
+from utils import basename_no_ext, mkdir
 import pandas as pd
 
 from anafora_data import AnaforaDocument, Instruction, InstructionCondition, Medication
@@ -132,27 +133,27 @@ def anafora_process(input_tsv: str, output_dir: str) -> None:
     to_anafora_files(raw_frame, output_dir)
 
 
-def build_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
+def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
+    def serialized_output_to_unique_meds(output: list[str]) -> set[str]:
+        raw_output = re.sub("<c[rtnf]>", "", output[0])
+        return {med.lower() for med in raw_output.split(",")}
+
     def get_central_index(med_begin: int, token_index_ls: list[tuple[int, int]]) -> int:
         def closest(token_ord: int) -> int:
             return abs(token_index_ls[token_ord][0] - med_begin)
 
         return min(range(len(token_index_ls)), default=-1, key=closest)
 
-    def serialized_output_to_unique_meds(output: list[str]) -> set[str]:
-        raw_output = re.sub("<c[rtnf]>", "", next(output))
-        return {med.lower() for med in raw_output.split(",")}
-
-    def build_med_inds(row: tuple[str, set[str]]) -> Iterable[str]:
-        section_body, meds = row
+    def build_med_windows(
+        section_body: str, meds: set[str]
+    ) -> list[tuple[tuple[int, int], tuple[int, int], str]]:
         meds_regex = "|".join(meds)
         normalized_section = section_body.lower()
-        token_index_ls = [token.span() for token in re.finditer("\S+", section_body)]
-        for med_match in re.finditer(meds_regex, normalized_section):
+        token_index_ls = [token.span() for token in re.finditer(r"\S+", section_body)]
+
+        def match_to_window(med_match) -> tuple[tuple[int, int], tuple[int, int], str]:
             med_begin, med_end = med_match.span()
             med_central_index = get_central_index(med_begin, token_index_ls)
-            if med_central_index == -1:
-                continue  # I hate this but TODO fix later
             window_begin = token_index_ls[max(0, med_central_index - WINDOW_RADIUS)][0]
             window_end = token_index_ls[
                 min(len(token_index_ls) - 1, med_central_index + WINDOW_RADIUS)
@@ -163,17 +164,50 @@ def build_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
             window = (
                 f"...{opening}<medication>{tagged_medication}</medication>{closing}..."
             )
-            yield window
+            return ((med_begin, med_end), (window_begin, window_end), window)
 
-    section_texts = raw_frame["section_body"].to_list()
-    gross_outputs = raw_frame["serialized_outputs"].to_list()
-    pass
+        return [
+            match_to_window(med_match)
+            for med_match in re.finditer(meds_regex, normalized_section)
+        ]
+
+    def row_to_window_list(
+        row: pd.Series,
+    ) -> list[tuple[tuple[int, int], tuple[int, int], str]]:
+        meds = serialized_output_to_unique_meds(row.serialized_output)
+        return build_med_windows(row.section_body, meds)
+
+    raw_frame["raw_windows"] = raw_frame.apply(row_to_window_list, axis=1)
+    full_frame = raw_frame.explode("raw_windows")
+
+    def get_window_med_local_offsets(row: pd.Series) -> tuple[int, int]:
+        return row.raw_windows[0]
+
+    def get_window_cas_offsets(row: pd.Series) -> tuple[int, int]:
+        return row.raw_windows[1]
+
+    def get_window_text(row: pd.Series) -> str:
+        return row.raw_windows[2]
+
+    full_frame["medication_local_offsets"] = full_frame.apply(
+        get_window_med_local_offsets, axis=1
+    )
+    full_frame["window_cas_offsets"] = full_frame.apply(
+        get_window_med_local_offsets, axis=1
+    )
+    full_frame["window_text"] = full_frame.apply(get_window_text, axis=1)
+    full_frame.drop("raw_windows")
+    full_frame.reset_index(drop=True)
+    return full_frame
 
 
 def windows_process(input_tsv: str, output_dir: str) -> None:
     raw_frame = pd.read_csv(input_tsv, sep="\t")
-    expanded_windows_frame = build_windows(raw_frame)
-    expanded_windows_frame.to_csv("./placeholder.tsv", sep="\t")
+    expanded_windows_frame = build_frame_with_med_windows(raw_frame)
+    mkdir(output_dir)
+    input_file_basename = basename_no_ext(input_tsv)
+    out_path = os.path.join(output_dir, f"windowed_{input_file_basename}.tsv")
+    expanded_windows_frame.to_csv(out_path, sep="\t", index=False)
 
 
 def main() -> None:
