@@ -136,6 +136,12 @@ def anafora_process(input_tsv: str, output_dir: str) -> None:
 def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     def serialized_output_to_unique_meds(output: list[str]) -> set[str]:
         raw_output = re.sub("<c[rtnf]>", "", output[0])
+        raw_output = re.sub("\(", "\\(", raw_output)
+        raw_output = re.sub("\)", "\\)", raw_output)
+        raw_output = re.sub("\[", "\\[", raw_output)
+        raw_output = re.sub("\]", "\\]", raw_output)
+        if raw_output.lower() == "none":
+            return {}
         return {med.lower() for med in raw_output.split(",")}
 
     def get_central_index(med_begin: int, token_index_ls: list[tuple[int, int]]) -> int:
@@ -148,6 +154,7 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         section_body: str, meds: set[str]
     ) -> list[tuple[tuple[int, int], tuple[int, int], str]]:
         meds_regex = "|".join(meds)
+        # print(meds)
         normalized_section = section_body.lower()
         token_index_ls = [token.span() for token in re.finditer(r"\S+", section_body)]
 
@@ -174,13 +181,16 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     def row_to_window_list(
         row: pd.Series,
     ) -> list[tuple[tuple[int, int], tuple[int, int], str]]:
-        meds = serialized_output_to_unique_meds(row.serialized_output)
+        meds = serialized_output_to_unique_meds(literal_eval(row.serialized_output))
+        if len(meds) == 0:
+            return []
         return build_med_windows(row.section_body, meds)
 
     raw_frame["raw_windows"] = raw_frame.apply(row_to_window_list, axis=1)
+    raw_frame = raw_frame[raw_frame["raw_windows"].astype(bool)]
     full_frame = raw_frame.explode("raw_windows")
-
     def get_window_med_local_offsets(row: pd.Series) -> tuple[int, int]:
+        print( row.raw_windows)
         return row.raw_windows[0]
 
     def get_window_cas_offsets(row: pd.Series) -> tuple[int, int]:
@@ -196,7 +206,7 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         get_window_med_local_offsets, axis=1
     )
     full_frame["window_text"] = full_frame.apply(get_window_text, axis=1)
-    full_frame.drop("raw_windows")
+    full_frame.drop("raw_windows", axis=1, inplace=True)
     full_frame.reset_index(drop=True)
     return full_frame
 
