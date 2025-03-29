@@ -189,8 +189,9 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     raw_frame["raw_windows"] = raw_frame.apply(row_to_window_list, axis=1)
     raw_frame = raw_frame[raw_frame["raw_windows"].astype(bool)]
     full_frame = raw_frame.explode("raw_windows")
+
     def get_window_med_local_offsets(row: pd.Series) -> tuple[int, int]:
-        print( row.raw_windows)
+        print(row.raw_windows)
         return row.raw_windows[0]
 
     def get_window_cas_offsets(row: pd.Series) -> tuple[int, int]:
