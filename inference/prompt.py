@@ -49,15 +49,18 @@ parser.add_argument("--model_name", choices=["llama2", "llama3", "mixtral", "qwe
 parser.add_argument(
     "--text_column",
     type=str,
+    default="text"
 )
 
 parser.add_argument(
     "--max_new_tokens",
     type=int,
+    default=512
 )
 parser.add_argument(
     "--batch_size",
     type=int,
+    default=8
 )
 parser.add_argument(
     "--query_files",
