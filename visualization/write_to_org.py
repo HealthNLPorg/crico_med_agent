@@ -17,7 +17,7 @@ parser.add_argument(
 )
 parser.add_argument("--output_dir", type=str)
 parser.add_argument("--parse_type", choices=["json", "xml"])
-
+parser.add_argument("--input_sample_column", type=str)
 
 def deserialize(s: str) -> str:
     return (
@@ -31,12 +31,12 @@ def deserialize(s: str) -> str:
 class ParsedSection:
     def __init__(
         self,
-        section_body: str,
+        input_sample: str,
         section_identifier: str,
         parse_matter: str,
         parse_type: str,
     ) -> None:
-        self.section_body = section_body
+        self.input_sample = input_sample
         self.section_identifier = section_identifier
         self.parse_matter = parse_matter
         self.parse_type = parse_type
@@ -79,8 +79,8 @@ class ParsedSection:
                 )
         return (
             f"{base_depth * '*'} {self.section_identifier}:\n"
-            f"{(base_depth + 1) * '*'} Section Body:\n"
-            f"{textwrap.fill(deserialize(self.section_body), width=width)}\n"
+            f"{(base_depth + 1) * '*'} Input Sample:\n"
+            f"{textwrap.fill(deserialize(self.input_sample), width=width)}\n"
             f"{(base_depth + 1) * '*'} Model Output:\n"
             f"{parsed}\n"
             f"{(base_depth + 1) * '*'} TODO Error Analysis:\n\n\n"
@@ -99,17 +99,17 @@ def json_parse(row: pd.Series) -> ParsedSection:
             parsed_json = []
     finally:
         return ParsedSection(
-            row.section_body, row.section_identifier, parsed_json, "json"
+            row.input_sample, row.section_identifier, parsed_json, "json"
         )
 
 
-def xml_parse(row: pd.Series) -> ParsedSection:
+def xml_parse(row: pd.Series, input_sample_column: str) -> ParsedSection:
     return ParsedSection(
-        row.section_body, row.section_identifier, row.serialized_output, "xml"
+        row[input_sample_column], row.section_identifier, row.serialized_output, "xml"
     )
 
 
-def process(excel_input: str, output_dir: str, parse_type: str) -> None:
+def process(excel_input: str, output_dir: str, parse_type: str, input_sample_column: str) -> None:
     df = (
         pd.read_excel(excel_input)
         if excel_input.lower().endswith("xlsx")
@@ -122,11 +122,11 @@ def process(excel_input: str, output_dir: str, parse_type: str) -> None:
         case "json":
 
             def get_parsed_section(row):
-                return json_parse(row)
+                return json_parse(row, input_sample_column)
         case "xml":
 
             def get_parsed_section(row):
-                return xml_parse(row)
+                return xml_parse(row, input_sample_column)
 
     with open(output_path, mode="w") as f:
         for fn, fn_frame in df.groupby(["filename"]):
@@ -138,7 +138,7 @@ def process(excel_input: str, output_dir: str, parse_type: str) -> None:
 
 def main() -> None:
     args = parser.parse_args()
-    process(args.excel_input, args.output_dir, args.parse_type)
+    process(args.excel_input, args.output_dir, args.parse_type, args.input_sample_column)
 
 
 if __name__ == "__main__":
