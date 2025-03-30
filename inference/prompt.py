@@ -46,6 +46,10 @@ parser.add_argument("--load_in_8bit", action="store_true")
 parser.add_argument("--fancy_output", action="store_true")
 parser.add_argument("--model_name", choices=["llama2", "llama3", "mixtral", "qwen2"])
 
+parser.add_argument(
+    "--text_column",
+    type=str,
+)
 
 parser.add_argument(
     "--max_new_tokens",
@@ -243,20 +247,20 @@ def try_json(s: str) -> dict:
         return {}
 
 
-def medication_non_hallucinatory(sample: dict, text_column: str) -> bool:
-    def normalize(text: str, delim: str = "") -> str:
-        return delim.join(text.lower().split())
+# def medication_non_hallucinatory(sample: dict, text_column: str) -> bool:
+#     def normalize(text: str, delim: str = "") -> str:
+#         return delim.join(text.lower().split())
 
-    raw_medication = json.loads(sample["json_output"]).get("medication")
-    try:
-        return raw_medication is not None and normalize(raw_medication) in normalize(
-            sample[text_column], " "
-        )
-    except Exception:
-        logger.warning(
-            f"Issue with JSON sample {sample['json_output']} compared against {sample['section_body']}"
-        )
-        return False
+#     raw_medication = json.loads(sample["json_output"]).get("medication")
+#     try:
+#         return raw_medication is not None and normalize(raw_medication) in normalize(
+#             sample[text_column], " "
+#         )
+#     except Exception:
+#         logger.warning(
+#             f"Issue with JSON sample {sample['json_output']} compared against {sample['section_body']}"
+#         )
+#         return False
 
 
 def non_empty_json(sample: dict) -> bool:
