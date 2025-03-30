@@ -87,23 +87,35 @@ logging.basicConfig(
 )
 
 
-def main() -> None:
-    args = parser.parse_args()
+def process(
+    model_name: str,
+    text_column: str,
+    prompt_file: str,
+    query_files: str,
+    max_new_tokens: int,
+    output_dir: str,
+    model_path: str | None,
+    examples_file: str | None,
+    sample_document: str | None,
+    sample_answer: str | None,
+    query_dir: str | None,
+    batch_size: int,
+) -> None:
     final_path = ""
-    if args.model_name is not None:
-        final_path = name2path[args.model_name]
+    if model_name is not None:
+        final_path = name2path[model_name]
     else:
-        final_path = args.model_path
+        final_path = model_path
     logger.info(f"Loading tokenizer and model for model name {final_path}")
     # quantization_config = BitsAndBytesConfig(
-    #     load_in_4bit=args.load_in_4bit, load_in_8bit=args.load_in_8bit
+    #     load_in_4bit=load_in_4bit, load_in_8bit=load_in_8bit
     # )
-    system_prompt = get_system_prompt(args.prompt_file)
+    system_prompt = get_system_prompt(prompt_file)
     logger.info("Building dataset")
     query_dataset = load_dataset(
         "csv",
         sep="\t",
-        data_files=args.query_files,  # check cnlpt to see how to do this with splits (
+        data_files=query_files,  # check cnlpt to see how to do this with splits (
         #     [
         #         os.path.join(args.query_dir, fn)
         #         for fn in os.listdir(args.query_dir)
@@ -124,8 +136,8 @@ def main() -> None:
 
         return _few_shot_prompt
 
-    if args.examples_file is not None:
-        examples = get_examples(args.examples_file)
+    if examples_file is not None:
+        examples = get_examples(examples_file)
         if len(examples) > 0:
             get_prompt = few_shot_with_examples(examples=examples)
 
@@ -133,8 +145,8 @@ def main() -> None:
             ValueError("Empty examples file")
 
             get_prompt = empty_prompt
-    elif args.sample_document is not None and args.sample_answer is not None:
-        example = get_document_level_example(args.sample_document, args.sample_answer)
+    elif sample_document is not None and sample_answer is not None:
+        example = get_document_level_example(sample_document, sample_answer)
         if all(len(ex) > 0 for ex in example):
             get_prompt = few_shot_with_examples(examples=(example,))
         else:
@@ -148,15 +160,13 @@ def main() -> None:
         "text-generation",
         model=final_path,
         device_map="auto",
-        max_new_tokens=args.max_new_tokens,
+        max_new_tokens=max_new_tokens,
     )
     end = time()
     logger.info(f"Loading model took {end - start} seconds")
-    out_dir = args.output_dir
+    out_dir = output_dir
     out_fn_stem = pathlib.Path(
-        args.query_dir
-        if args.query_dir
-        else "_".join(basename_no_ext(fn) for fn in args.query_files)
+        query_dir if query_dir else "_".join(basename_no_ext(fn) for fn in query_files)
     ).stem
     tsv_out_fn = f"{out_fn_stem}.tsv"
     tsv_out_path = os.path.join(out_dir, tsv_out_fn)
@@ -165,9 +175,7 @@ def main() -> None:
     def format_chat(sample: dict) -> dict:
         return {
             "text": seqgen_pipe.tokenizer.apply_chat_template(
-                get_prompt(
-                    system_prompt, deserialize_whitespace(sample["section_body"])
-                ),
+                get_prompt(system_prompt, deserialize_whitespace(sample[text_column])),
                 tokenize=False,
                 add_generation_prompt=False,
                 truncate=True,
@@ -190,18 +198,36 @@ def main() -> None:
 
     query_dataset = (
         query_dataset.map(format_chat)
-        .map(predict, batched=True, batch_size=args.batch_size)
+        .map(predict, batched=True, batch_size=batch_size)
         .map(serialize_output)
         # .map(parse_output)
         # .filter(non_empty_json)
         # .filter(medication_non_hallucinatory)
         # .map(insert_mentions)
         # .map(clean_section)
-        # .remove_columns(["text", "output", "json_output", "section_body", "section_identifier"])
+        # .remove_columns(["text", "output", "json_output", text_column, "section_identifier"])
     )
     query_dataset.remove_columns(["text", "output"])
     query_dataframe = query_dataset.to_pandas()
     query_dataframe.to_csv(tsv_out_path, sep="\t", index=False)
+
+
+def main() -> None:
+    args = parser.parse_args()
+    process(
+        args.model_name,
+        args.text_column,
+        args.prompt_file,
+        args.query_files,
+        args.max_new_tokens,
+        args.output_dir,
+        args.model_path,
+        args.examples_file,
+        args.sample_document,
+        args.sample_answer,
+        args.query_dir,
+        args.batch_size,
+    )
 
 
 def parse_output(sample: dict) -> dict:
@@ -217,14 +243,14 @@ def try_json(s: str) -> dict:
         return {}
 
 
-def medication_non_hallucinatory(sample: dict) -> bool:
+def medication_non_hallucinatory(sample: dict, text_column: str) -> bool:
     def normalize(text: str, delim: str = "") -> str:
         return delim.join(text.lower().split())
 
     raw_medication = json.loads(sample["json_output"]).get("medication")
     try:
         return raw_medication is not None and normalize(raw_medication) in normalize(
-            sample["section_body"], " "
+            sample[text_column], " "
         )
     except Exception:
         logger.warning(
