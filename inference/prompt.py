@@ -46,22 +46,10 @@ parser.add_argument("--load_in_8bit", action="store_true")
 parser.add_argument("--fancy_output", action="store_true")
 parser.add_argument("--model_name", choices=["llama2", "llama3", "mixtral", "qwen2"])
 
-parser.add_argument(
-    "--text_column",
-    type=str,
-    default="text"
-)
+parser.add_argument("--text_column", type=str, default="text")
 
-parser.add_argument(
-    "--max_new_tokens",
-    type=int,
-    default=512
-)
-parser.add_argument(
-    "--batch_size",
-    type=int,
-    default=8
-)
+parser.add_argument("--max_new_tokens", type=int, default=512)
+parser.add_argument("--batch_size", type=int, default=8)
 parser.add_argument(
     "--query_files",
     nargs="+",
@@ -365,12 +353,14 @@ def parse_input_output(examples_file_path: str) -> list[tuple[str, str]]:
         return result
 
     with open(examples_file_path, mode="rt", encoding="utf-8") as ef:
-        raw_str = ef.read()
-        return [
-            parse_example(example.strip())
-            for example in raw_str.split("\n\n")
-            if len(example.split()) > 0
-        ]
+        no_comments_str = "".join(
+            line for line in ef.readlines() if not line.strip().startswith("#")
+        )
+    return [
+        parse_example(example.strip())
+        for example in no_comments_str.split("\n\n")
+        if len(example.split()) > 0
+    ]
 
 
 def get_document_level_example(
