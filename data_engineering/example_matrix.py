@@ -1,7 +1,9 @@
 import re
+import os
 import argparse
 import json
 import pathlib
+from functools import lru_cache
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(
@@ -9,6 +11,15 @@ parser.add_argument(
     type=str,
 )
 parser.add_argument("--output_dir", type=str)
+
+
+def basename_no_ext(fn: str) -> str:
+    return pathlib.Path(fn).stem.strip()
+
+
+def mkdir(dir_name: str) -> None:
+    _dir_name = pathlib.Path(dir_name)
+    _dir_name.mkdir(parents=True, exist_ok=True)
 
 
 class JSONExample:
@@ -51,7 +62,9 @@ def parse_output_dict(output_str: str) -> dict[str, str]:
     return {"XML": xml_example, "JSON": json_example}
 
 
-def normalize_json_dict(serialized_json: str) -> dict[str, list[str]] | None:
+def normalize_json_output_example(serialized_json: str) -> dict[str, list[str]] | None:
+    if serialized_json.strip().lower() == "none":
+        return None
     raw_dictionary = json.loads(serialized_json)
     medication_value = raw_dictionary.get("medication", [])
     instruction_value = raw_dictionary.get("instruction", [])
@@ -77,7 +90,47 @@ def write_outputs(
     output_dir: str,
     input_fn: str,
 ) -> None:
-    pass
+    mkdir(output_dir)
+
+    def get_xml_example(parsed_output: dict[str, JSONExample | str]) -> str:
+        xml_val = parsed_output.get("XML")
+        return f"XML:\n{xml_val}\n"
+
+    def get_json_example(parsed_output: dict[str, JSONExample | str]) -> str:
+        json_val = str(parsed_output.get("JSON"))
+        return f"JSON:\n{json_val}\n"
+
+    def get_xml_first_example(parsed_output: dict[str, JSONExample | str]) -> str:
+        return get_xml_example(parsed_output) + get_json_example(parsed_output)
+
+    def get_json_first_example(parsed_output: dict[str, JSONExample | str]) -> str:
+        return get_json_example(parsed_output) + get_xml_example(parsed_output)
+
+    with open(
+        os.path.join(output_dir, f"{input_fn}_xml_only.txt"),
+        mode="w",
+        encoding="utf-8",
+    ) as f:
+        for input_str, parsed_output in zip(inputs, parsed_outputs):
+            output_sample = get_xml_example(parsed_output)
+            f.write(f"input:\n{input_str}\noutput:\n{output_sample}\n")
+    with open(
+        os.path.join(output_dir, f"{input_fn}_json_only.txt"),
+        mode="w",
+        encoding="utf-8",
+    ) as f:
+        for input_str, parsed_output in zip(inputs, parsed_outputs):
+            output_sample = get_json_example(parsed_output)
+            f.write(f"input:\n{input_str}\noutput:\n{output_sample}\n")
+
+    with open(
+        os.path.join(output_dir, f"{input_fn}_json_first.txt"),
+        mode="w",
+        encoding="utf-8",
+    ) as f:
+        for input_str, parsed_output in zip(inputs, parsed_outputs):
+            output_sample = get_json_first_example(parsed_output)
+            f.write(f"input:\n{input_str}\noutput:\n{output_sample}\n")
 
 
 def process(input_file: str, output_dir: str) -> None:
@@ -89,11 +142,11 @@ def process(input_file: str, output_dir: str) -> None:
         raw_dict = parse_output_dict(output)
         return {
             "XML": raw_dict.get("XML"),
-            "JSON": JSONExample(normalize_json_dict(raw_dict.get("JSON"))),
+            "JSON": JSONExample(normalize_json_output_example(raw_dict.get("JSON"))),
         }
 
     fully_parsed_outputs = [full_parse(output) for output in raw_outputs]
-    input_fn = pathlib.Path(input_file).stem
+    input_fn = basename_no_ext(input_file)
     write_outputs(inputs, fully_parsed_outputs, output_dir, input_fn)
 
 
