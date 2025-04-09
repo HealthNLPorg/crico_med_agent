@@ -64,7 +64,7 @@ class ParsedSection:
 
         match self.parse_type:
             case "json":
-                json_output = (
+                json_output: list[str] = (
                     self.parse_matter if isinstance(self.parse_matter, list) else []
                 )
                 parsed = (
@@ -77,7 +77,7 @@ class ParsedSection:
             case "xml":
                 contained = literal_eval(self.parse_matter)[0]
                 parsed = (
-                    contained
+                    "None"
                     if contained is None
                     else textwrap.fill(deserialize(contained).strip(), width=width)
                 )
