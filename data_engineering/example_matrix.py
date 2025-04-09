@@ -3,7 +3,6 @@ import os
 import argparse
 import json
 import pathlib
-from functools import lru_cache
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(
@@ -66,7 +65,7 @@ def normalize_json_output_example(serialized_json: str) -> dict[str, list[str]] 
     if serialized_json.strip().lower() == "none":
         return None
     raw_dictionary = json.loads(serialized_json)
-    medication_value = raw_dictionary.get("medication", [])
+    medication_value = raw_dictionary.get("medications", [])
     instruction_value = raw_dictionary.get("instruction", [])
     condition_value = raw_dictionary.get("instructionCondition", [])
     if len(medication_value) == 0 or (
@@ -141,8 +140,10 @@ def process(input_file: str, output_dir: str) -> None:
     def full_parse(output: str) -> dict[str, str | JSONExample]:
         raw_dict = parse_output_dict(output)
         return {
-            "XML": raw_dict.get("XML"),
-            "JSON": JSONExample(normalize_json_output_example(raw_dict.get("JSON"))),
+            "XML": raw_dict.get("XML", "None"),
+            "JSON": JSONExample(
+                normalize_json_output_example(raw_dict.get("JSON", "None"))
+            ),
         }
 
     fully_parsed_outputs = [full_parse(output) for output in raw_outputs]

@@ -1,4 +1,5 @@
 import os
+import re
 from ast import literal_eval
 import json
 import textwrap
@@ -16,8 +17,9 @@ parser.add_argument(
     type=str,
 )
 parser.add_argument("--output_dir", type=str)
-parser.add_argument("--parse_type", choices=["json", "xml"])
+parser.add_argument("--parse_type", choices=["json", "xml", "xml_first", "json_first"])
 parser.add_argument("--input_sample_column", type=str)
+
 
 def deserialize(s: str) -> str:
     return (
@@ -54,8 +56,10 @@ class ParsedSection:
 
             return (
                 f"Medication: {mention_dict.get('medication', 'ERROR_MENTION_WITH_NO_MEDICATION')}\n"
-                f"Instructions:\n{list_to_str(mention_dict.get('instructions', []))}"
-                f"Conditions:\n{list_to_str(mention_dict.get('conditions', []))}"
+                f"Instructions:\n{list_to_str(mention_dict.get('instruction', []))}"
+                f"Conditions:\n{list_to_str(mention_dict.get('condition', []))}"
+                f"Dosage:\n{list_to_str(mention_dict.get('dosage', []))}"
+                f"Frequency:\n{list_to_str(mention_dict.get('frequency', []))}"
             )
 
         match self.parse_type:
@@ -77,6 +81,46 @@ class ParsedSection:
                     if contained is None
                     else textwrap.fill(deserialize(contained).strip(), width=width)
                 )
+            case "json_first":
+                json_raw_parse, xml_raw_parse = [
+                    text_body.strip()
+                    for text_body in re.split(
+                        r"XML\:|JSON\:",
+                        deserialize(literal_eval(self.parse_matter)[0]),
+                    )
+                    if len(text_body.strip()) > 0
+                ]
+                json_parsed = (
+                    json.loads(json_raw_parse)
+                    if json_raw_parse.strip().lower() != "none"
+                    else "none"
+                )
+                xml_parsed = (
+                    xml_raw_parse
+                    if xml_raw_parse is None
+                    else textwrap.fill(xml_raw_parse, width=width)
+                )
+                parsed = f"JSON:\n{json_parsed}\nXML:\n{xml_parsed}\n"
+            case "xml_first":
+                xml_raw_parse, json_raw_parse = [
+                    text_body.strip()
+                    for text_body in re.split(
+                        r"XML\:|JSON\:",
+                        deserialize(literal_eval(self.parse_matter)[0]),
+                    )
+                    if len(text_body.strip()) > 0
+                ]
+                json_parsed = (
+                    json.loads(json_raw_parse)
+                    if json_raw_parse.strip().lower() != "none"
+                    else "none"
+                )
+                xml_parsed = (
+                    xml_raw_parse
+                    if xml_raw_parse is None
+                    else textwrap.fill(xml_raw_parse, width=width)
+                )
+                parsed = f"XML:\n{xml_parsed}\nJSON:\n{json_parsed}\n"
         return (
             f"{base_depth * '*'} {self.section_identifier}:\n"
             f"{(base_depth + 1) * '*'} Input Sample:\n"
@@ -87,7 +131,7 @@ class ParsedSection:
         )
 
 
-def json_parse(row: pd.Series) -> ParsedSection:
+def json_parse(row: pd.Series, input_sample_column) -> ParsedSection:
     try:
         raw_json = json.loads(row.json_output)
         parsed_json = raw_json if isinstance(raw_json, list) else []
@@ -99,7 +143,7 @@ def json_parse(row: pd.Series) -> ParsedSection:
             parsed_json = []
     finally:
         return ParsedSection(
-            row.input_sample, row.section_identifier, parsed_json, "json"
+            row[input_sample_column], row.section_identifier, parsed_json, "json"
         )
 
 
@@ -109,7 +153,27 @@ def xml_parse(row: pd.Series, input_sample_column: str) -> ParsedSection:
     )
 
 
-def process(excel_input: str, output_dir: str, parse_type: str, input_sample_column: str) -> None:
+def xml_first_parse(row: pd.Series, input_sample_column: str) -> ParsedSection:
+    return ParsedSection(
+        row[input_sample_column],
+        row.section_identifier,
+        row.serialized_output,
+        "xml_first",
+    )
+
+
+def json_first_parse(row: pd.Series, input_sample_column: str) -> ParsedSection:
+    return ParsedSection(
+        row[input_sample_column],
+        row.section_identifier,
+        row.serialized_output,
+        "json_first",
+    )
+
+
+def process(
+    excel_input: str, output_dir: str, parse_type: str, input_sample_column: str
+) -> None:
     df = (
         pd.read_excel(excel_input)
         if excel_input.lower().endswith("xlsx")
@@ -127,6 +191,14 @@ def process(excel_input: str, output_dir: str, parse_type: str, input_sample_col
 
             def get_parsed_section(row):
                 return xml_parse(row, input_sample_column)
+        case "json_first":
+
+            def get_parsed_section(row):
+                return json_first_parse(row, input_sample_column)
+        case "xml_first":
+
+            def get_parsed_section(row):
+                return xml_first_parse(row, input_sample_column)
 
     with open(output_path, mode="w") as f:
         for fn, fn_frame in df.groupby(["filename"]):
@@ -138,7 +210,9 @@ def process(excel_input: str, output_dir: str, parse_type: str, input_sample_col
 
 def main() -> None:
     args = parser.parse_args()
-    process(args.excel_input, args.output_dir, args.parse_type, args.input_sample_column)
+    process(
+        args.excel_input, args.output_dir, args.parse_type, args.input_sample_column
+    )
 
 
 if __name__ == "__main__":
