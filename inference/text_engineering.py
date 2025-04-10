@@ -28,7 +28,9 @@ logging.basicConfig(
 # ( so you can load them later via pandas without parsing errors )
 # ignoring vertical tabs (\v) for now
 # unless we run into them
-def serialize_whitespace(sample: str) -> str:
+def serialize_whitespace(sample: str | None) -> str:
+    if sample is None:
+        return "None"
     return (
         sample.replace("\n", "<cn>")
         .replace("\t", "<ct>")
@@ -37,7 +39,9 @@ def serialize_whitespace(sample: str) -> str:
     )
 
 
-def deserialize_whitespace(sample: str) -> str:
+def deserialize_whitespace(sample: str | None) -> str:
+    if sample is None:
+        return "None"
     return (
         sample.replace("<cn>", "\n")
         .replace("<ct>", "\t")
