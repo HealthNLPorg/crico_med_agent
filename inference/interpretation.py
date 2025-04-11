@@ -6,7 +6,7 @@ from itertools import chain
 from typing import Iterable, cast
 from utils import basename_no_ext, mkdir
 import pandas as pd
-
+import numpy as np
 from anafora_data import AnaforaDocument, Instruction, InstructionCondition, Medication
 
 parser = argparse.ArgumentParser(description="")
@@ -140,9 +140,20 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         raw_output = re.sub("\)", "\\)", raw_output)
         raw_output = re.sub("\[", "\\[", raw_output)
         raw_output = re.sub("\]", "\\]", raw_output)
-        if raw_output.lower() == "none":
+        normalized = raw_output.lower()
+        bad_terms = {
+            "begin_of_text",
+            "end_of_text",
+            "start_header_id",
+            "end_header_id",
+            "eot_id",
+            ":",
+        }
+        if normalized == "none" or any(
+            bad_term in normalized for bad_term in bad_terms
+        ):
             return {}
-        return {med.lower() for med in raw_output.split(",")}
+        return {med.lower().strip() for med in raw_output.split(",")}
 
     def get_central_index(med_begin: int, token_index_ls: list[tuple[int, int]]) -> int:
         def closest(token_ord: int) -> int:
@@ -154,7 +165,6 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         section_body: str, meds: set[str]
     ) -> list[tuple[tuple[int, int], tuple[int, int], str]]:
         meds_regex = "|".join(meds)
-        # print(meds)
         normalized_section = section_body.lower()
         token_index_ls = [token.span() for token in re.finditer(r"\S+", section_body)]
 
@@ -182,16 +192,22 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         row: pd.Series,
     ) -> list[tuple[tuple[int, int], tuple[int, int], str]]:
         meds = serialized_output_to_unique_meds(literal_eval(row.serialized_output))
-        if len(meds) == 0:
+        if (
+            len(meds) == 0
+            or (isinstance(row.section_body, str) and len(row.section_body) == 0)
+            or (
+                not isinstance(row.section_body, str)
+                and (row.section_body is None or np.isnan(row.section_body))
+            )
+        ):
             return []
-        return build_med_windows(row.section_body, meds)
+        return build_med_windows(str(row.section_body), meds)
 
     raw_frame["raw_windows"] = raw_frame.apply(row_to_window_list, axis=1)
     raw_frame = raw_frame[raw_frame["raw_windows"].astype(bool)]
     full_frame = raw_frame.explode("raw_windows")
 
     def get_window_med_local_offsets(row: pd.Series) -> tuple[int, int]:
-        print(row.raw_windows)
         return row.raw_windows[0]
 
     def get_window_cas_offsets(row: pd.Series) -> tuple[int, int]:

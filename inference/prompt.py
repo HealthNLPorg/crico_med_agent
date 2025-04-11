@@ -9,9 +9,11 @@ from time import time
 from typing import Callable, Iterable, cast
 import pandas as pd
 from datasets import Dataset, load_dataset
-from transformers import pipeline
+from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from huggingface_hub import snapshot_download
 from utils import basename_no_ext, mkdir
 from text_engineering import deserialize_whitespace, serialize_whitespace
+from accelerate import init_empty_weights, load_checkpoint_and_dispatch
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(
@@ -120,7 +122,6 @@ def process(
         #     else args.query_files
         # ),
     )
-    print(query_dataset)
     query_dataset = query_dataset["train"]
 
     def few_shot_with_examples(
@@ -151,9 +152,21 @@ def process(
     else:
         get_prompt = zero_shot_prompt
     start = time()
+    # checkpoint = final_path
+    # weights_location = snapshot_download(repo_id=checkpoint)
+    # config = AutoConfig.from_pretrained(checkpoint)
+    # with init_empty_weights():
+    #     model = AutoModelForCausalLM.from_config(config)
+    # model = load_checkpoint_and_dispatch(
+    #     model, checkpoint=weights_location, device_map="auto", no_split_module_classes=['Block']
+    # )
+    model = AutoModelForCausalLM.from_pretrained(final_path)
+    tokenizer = AutoTokenizer.from_pretrained(final_path)
     seqgen_pipe = pipeline(
         "text-generation",
-        model=final_path,
+        # model=final_path,
+        model=model,
+        tokenizer=tokenizer,
         device_map="auto",
         max_new_tokens=max_new_tokens,
     )
@@ -174,7 +187,7 @@ def process(
                 tokenize=False,
                 add_generation_prompt=False,
                 truncate=True,
-                max_length=8_000,
+                # max_length=8_000,
             )
         }
 
@@ -358,7 +371,8 @@ def parse_input_output(examples_file_path: str) -> list[tuple[str, str]]:
         )
     return [
         parse_example(example.strip())
-        for example in no_comments_str.split("\n\n")
+        # for example in no_comments_str.split("\n\n")
+        for example in re.split("\n{2,}", no_comments_str)
         if len(example.split()) > 0
     ]
 
