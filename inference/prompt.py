@@ -217,6 +217,15 @@ def process(
     )
     query_dataset.remove_columns(["text", "output"])
     query_dataframe = query_dataset.to_pandas()
+    query_dataframe = query_dataframe[
+        [
+            "section_body",
+            "section_identifier",
+            "filename",
+            "section_offsets",
+            "serialized_output",
+        ]
+    ]
     query_dataframe.to_csv(tsv_out_path, sep="\t", index=False)
 
 
