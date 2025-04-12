@@ -9,11 +9,9 @@ from time import time
 from typing import Callable, Iterable, cast
 import pandas as pd
 from datasets import Dataset, load_dataset
-from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from huggingface_hub import snapshot_download
+from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
 from utils import basename_no_ext, mkdir
 from text_engineering import deserialize_whitespace, serialize_whitespace
-from accelerate import init_empty_weights, load_checkpoint_and_dispatch
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(
@@ -219,7 +217,7 @@ def process(
     query_dataframe = query_dataset.to_pandas()
     query_dataframe = query_dataframe[
         [
-            "section_body",
+            text_column,
             "section_identifier",
             "filename",
             "section_offsets",
