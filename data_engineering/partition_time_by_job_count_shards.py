@@ -1,0 +1,95 @@
+import argparse
+import os
+import pandas as pd
+from operator import itemgetter
+import gc
+import logging
+from collections import deque
+from typing import Deque, cast
+import pathlib
+
+parser = argparse.ArgumentParser(description="")
+parser.add_argument("--input_tsv", type=str)
+parser.add_argument("--output_dir", type=str)
+parser.add_argument("--initial", type=int)
+parser.add_argument("--job_count", type=int)
+parser.add_argument("--hours_per_job", type=int)
+parser.add_argument("--seconds_per_instance", type=int)
+
+logger = logging.getLogger(__name__)
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    level=logging.INFO,
+)
+
+
+def basename_no_ext(fn: str) -> str:
+    return pathlib.Path(fn).stem.strip()
+
+
+def mkdir(dir_name: str) -> None:
+    _dir_name = pathlib.Path(dir_name)
+    _dir_name.mkdir(parents=True, exist_ok=True)
+
+
+def get_instances_per_job(hours_per_job: int, seconds_per_instance: int) -> int:
+    seconds_per_job = hours_per_job * 60 * 60
+    return seconds_per_job // seconds_per_instance
+
+
+def process(
+    input_tsv: str,
+    output_dir: str,
+    initial: int,
+    job_count: int,
+    hours_per_job: int,
+    seconds_per_instance: int,
+) -> None:
+    gc.enable()
+    current_instances = 0
+    shards_remaining = job_count
+    shard_data: Deque[tuple[str, pd.DataFrame]] = deque()
+    instances_per_job = get_instances_per_job(hours_per_job, seconds_per_instance)
+    full_frame = pd.read_csv(input_tsv, sep="\t", low_memory=False)
+    for fn, fn_sub_frame in full_frame.groupby("filename"):
+        if current_instances < instances_per_job:
+            reached = current_instances + len(fn_sub_frame) == instances_per_job
+            if current_instances + len(fn_sub_frame) > instances_per_job or reached:
+                if reached:
+                    shard_data.append((cast(str, fn), fn_sub_frame))
+                shard_dir = os.path.join(
+                    output_dir, f"shard_{(job_count - shards_remaining) + initial}"
+                )
+                mkdir(shard_dir)
+                df = pd.concat(map(itemgetter(1), shard_data))
+                df.to_csv(
+                    os.path.join(shard_dir, "shard_frame.tsv"), sep="\t", index=False
+                )
+                with open(
+                    os.path.join(shard_dir, "shard_study_ids.ttx"),
+                    mode="w",
+                    encoding="utf-8",
+                ) as f:
+                    f.write("\n".join(map(itemgetter(0), shard_data)))
+                shard_data.clear()
+                gc.collect()
+            else:
+                shard_data.append((cast(str, fn), fn_sub_frame))
+                current_instances += len(fn_sub_frame)
+        else:
+            logger.error("This shouldn't happen!")
+            exit(1)
+
+
+def main() -> None:
+    args = parser.parse_args()
+    process(
+        args.input_tsv,
+        args.output_dir,
+        args.initial,
+        args.job_count,
+        args.hours_per_job,
+        args.seconds_per_instance,
+    )

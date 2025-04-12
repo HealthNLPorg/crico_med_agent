@@ -63,6 +63,14 @@ parser.add_argument(
 )
 parser.add_argument("--output_dir", type=str)
 
+parser.add_argument(
+    "--keeper_columns",
+    nargs="+",
+    type="str",
+    default=[],
+    help="Columns to keep in the final frame",
+)
+
 name2path = {
     "llama2": "/lab-share/CHIP-Savova-e2/Public/resources/llama-2/Llama-2-70b-chat-hf",
     "llama3": "/lab-share/CHIP-Savova-e2/Public/resources/Meta-Llama-3-8B-Instruct/",
@@ -95,6 +103,7 @@ def process(
     sample_answer: str | None,
     query_dir: str | None,
     batch_size: int,
+        keeper_columns: list[str],
 ) -> None:
     final_path = ""
     if model_name is not None:
@@ -215,34 +224,19 @@ def process(
     )
     query_dataset.remove_columns(["text", "output"])
     query_dataframe = query_dataset.to_pandas()
-    query_dataframe = query_dataframe[
-        [
-            text_column,
-            "section_identifier",
-            "filename",
-            "section_offsets",
-            "serialized_output",
-        ]
-    ]
+    if len(keeper_columns) > 0:
+        query_dataframe = query_dataframe[keeper_columns]
+        #     [
+        #         text_column,
+        #         "section_identifier",
+        #         "filename",
+        #         "section_offsets",
+        #         "serialized_output",
+        #     ]
+        # ]
     query_dataframe.to_csv(tsv_out_path, sep="\t", index=False)
 
 
-def main() -> None:
-    args = parser.parse_args()
-    process(
-        args.model_name,
-        args.text_column,
-        args.prompt_file,
-        args.query_files,
-        args.max_new_tokens,
-        args.output_dir,
-        args.model_path,
-        args.examples_file,
-        args.sample_document,
-        args.sample_answer,
-        args.query_dir,
-        args.batch_size,
-    )
 
 
 def parse_output(sample: dict) -> dict:
@@ -431,5 +425,22 @@ def get_files(raw_dir: str) -> Iterable[str]:
         yield os.path.join(raw_dir, base_fn)
 
 
+def main() -> None:
+    args = parser.parse_args()
+    process(
+        args.model_name,
+        args.text_column,
+        args.prompt_file,
+        args.query_files,
+        args.max_new_tokens,
+        args.output_dir,
+        args.model_path,
+        args.examples_file,
+        args.sample_document,
+        args.sample_answer,
+        args.query_dir,
+        args.batch_size,
+        args.keeper_columns,
+    )
 if __name__ == "__main__":
     main()
