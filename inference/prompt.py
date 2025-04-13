@@ -64,9 +64,8 @@ parser.add_argument(
 parser.add_argument("--output_dir", type=str)
 
 parser.add_argument(
-    "--keeper_columns",
-    nargs="+",
-    type="str",
+    "--keep_columns",
+    nargs="*",
     default=[],
     help="Columns to keep in the final frame",
 )
