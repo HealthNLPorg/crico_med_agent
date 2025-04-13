@@ -61,14 +61,21 @@ def process(
     seconds_per_instance: int,
 ) -> None:
     gc.enable()
+
+    def get_id_number(fn: str) -> int:
+        return int(fn.split("_")[-1])
+
     current_instances = 0
     shards_remaining = job_count
-    shard_data: Deque[tuple[str, pd.DataFrame]] = deque()
+    shard_data: Deque[tuple[int, pd.DataFrame]] = deque()
     instances_per_job = get_instances_per_job(
         hours_per_job, minutes_per_job, seconds_per_instance
     )
     full_frame = pd.read_csv(input_tsv, sep="\t", low_memory=False)
-    for fn, fn_sub_frame in full_frame.groupby("filename"):
+    full_frame["int_study_id"] = full_frame["filename"].map(get_id_number)
+    full_frame = full_frame.sort_values(by="int_study_id")
+    # full_frame.drop(columns=["int_study_id"], inplace=True)
+    for fn, fn_sub_frame in full_frame.groupby(by="int_study_id"):
         if shards_remaining == 0:
             break
         if current_instances < instances_per_job:
@@ -81,6 +88,7 @@ def process(
                 )
                 mkdir(shard_dir)
                 df = pd.concat(map(itemgetter(1), shard_data))
+                df.drop(columns=["int_study_id"], inplace=True)
                 df.to_csv(
                     os.path.join(shard_dir, "shard_frame.tsv"), sep="\t", index=False
                 )
@@ -89,7 +97,7 @@ def process(
                     mode="w",
                     encoding="utf-8",
                 ) as f:
-                    f.write("\n".join(map(itemgetter(0), shard_data)))
+                    f.write("\n".join(map(str, map(itemgetter(0), shard_data))))
                 shard_data.clear()
                 gc.collect()
                 full_frame.drop(df.index, inplace=True)
@@ -102,6 +110,7 @@ def process(
             logger.error("This shouldn't happen!")
             exit(1)
 
+    full_frame.drop(columns=["int_study_id"], inplace=True)
     full_frame.to_csv(os.path.join(output_dir, "remainder.tsv"), sep="\t", index=False)
 
 
