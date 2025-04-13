@@ -140,6 +140,7 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         raw_output = re.sub("\)", "\\)", raw_output)
         raw_output = re.sub("\[", "\\[", raw_output)
         raw_output = re.sub("\]", "\\]", raw_output)
+        raw_output = re.sub("\+", "\\+", raw_output)
         normalized = raw_output.lower()
         bad_terms = {
             "begin_of_text",
