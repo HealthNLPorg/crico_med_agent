@@ -1,12 +1,14 @@
 import argparse
-import os
-import pandas as pd
-from operator import itemgetter
 import gc
 import logging
-from collections import deque
-from typing import Deque, cast
+import os
 import pathlib
+import sys
+from collections import deque
+from operator import itemgetter
+from typing import Deque, cast
+
+import pandas as pd
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument("--input_tsv", type=str)
@@ -108,10 +110,47 @@ def process(
                 current_instances += len(fn_sub_frame)
         else:
             logger.error("This shouldn't happen!")
-            exit(1)
+            sys.exit(1)
 
     full_frame.drop(columns=["int_study_id"], inplace=True)
     full_frame.to_csv(os.path.join(output_dir, "remainder.tsv"), sep="\t", index=False)
+
+
+def get_sbatch_script_contents(
+    initial_shard_id: int,
+    total_shards: int,
+    target_hours: int,
+    shard_id: int,
+    estimated_time: str,
+) -> str:
+    return (
+        "#!/bin/bash"
+        "#SBATCH --account=chip"
+        "#SBATCH --partition=bch-gpu-pe             # queue to be used"
+        f"#SBATCH --time={estimated_time}             # Running time (in hours-minutes-seconds)"
+        f"#SBATCH --job-name=window_crico_shard_{shard_id}           # Job name"
+        "#SBATCH --mail-user=eli.goldner@childrens.harvard.edu      # Email address to send the job status"
+        "#SBATCH --mail-type=END,FAIL # send and email when the job begins, ends or fails"
+        "#SBATCH --output=/home/ch231037/logs/%x_%j.txt          # Name of the output file"
+        "#SBATCH --nodes=1               # Number of gpu nodes"
+        "#SBATCH --ntasks=1               # Number of gpu nodes"
+        "#SBATCH --gres=gpu:large:1                # Number of gpu devices on one gpu node"
+        "#SBATCH --mem=120GB"
+        ""
+        "source /home/ch231037/.bashrc"
+        "source activate hf_313"
+        ""
+        "python ~/Repos/CRICO/inference/prompt.py  \\"
+        "       --examples_file ~/4_core_json_vs_xml/json_first.txt \\"
+        "       --model_path unsloth/Meta-Llama-3.1-70B-Instruct-bnb-4bit \\"
+        "       --prompt_file ~/4_core_json_vs_xml/GS_prompt_json_first.txt \\"
+        "       --max_new_tokens 2048 \\"
+        "       --batch_size 8 \\"
+        "       --text_column window_text \\"
+        f"       --query_files ~/{initial_shard_id}_{total_shards}_{target_hours}_agent_2/shard_{shard_id}/shard_frame.tsv \\"
+        f"       --output_dir  ~/{initial_shard_id}_{total_shards}_{target_hours}_agent_2/shard_{shard_id}/processed/ \\"
+        "       --keep_columns section_identifier	filename	medication_local_offsets	window_cas_offsets	window_text serialized_output \\"
+    )
 
 
 def main() -> None:

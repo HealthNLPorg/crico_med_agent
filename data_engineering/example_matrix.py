@@ -1,8 +1,8 @@
-import re
-import os
 import argparse
 import json
+import os
 import pathlib
+import re
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(

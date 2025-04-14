@@ -1,13 +1,15 @@
-import re
-import os
 import argparse
+import os
+import re
 from ast import literal_eval
 from itertools import chain
 from typing import Iterable, cast
-from utils import basename_no_ext, mkdir
-import pandas as pd
+
 import numpy as np
-from anafora_data import AnaforaDocument, Instruction, InstructionCondition, Medication
+import pandas as pd
+from anafora_data import (AnaforaDocument, Instruction, InstructionCondition,
+                          Medication)
+from utils import basename_no_ext, mkdir
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(

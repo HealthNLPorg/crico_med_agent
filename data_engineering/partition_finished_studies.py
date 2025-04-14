@@ -1,9 +1,10 @@
 import argparse
-import os
-import pandas as pd
 import json
-from typing import Iterable, cast
 import logging
+import os
+from typing import Iterable, cast
+
+import pandas as pd
 
 parser = argparse.ArgumentParser(description="")
 

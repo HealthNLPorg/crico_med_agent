@@ -1,14 +1,15 @@
+import argparse
+import json
+import logging
 import os
+import pathlib
 import re
 from ast import literal_eval
-import json
-import pathlib
-import pandas as pd
-import argparse
-import logging
-from write_to_org import deserialize
 from functools import partial
 from operator import itemgetter
+
+import pandas as pd
+from write_to_org import deserialize
 
 logger = logging.getLogger(__name__)
 
