@@ -50,20 +50,20 @@ def get_instances_per_job(
         )
         sys.exit(1)
     seconds_per_job = (
-        hours_per_job * 60 * 60 if hours_per_job > 0 else minutes_per_job * 60
+        hours_per_job * 3600 if hours_per_job > 0 else minutes_per_job * 60
     )
     return seconds_per_job // seconds_per_instance
 
 
 @lru_cache
 def get_hours_for_instances(total_instances: int, seconds_per_instance) -> int:
-    return ceil((total_instances * seconds_per_instance) / 360)
+    return ceil((total_instances * seconds_per_instance) / 3600)
 
 
 @lru_cache
 def get_buffered_hours_for_instances(total_instances: int, seconds_per_instance) -> int:
-    numerator = 5
-    denominator = 4
+    numerator = 11
+    denominator = 10
     return ceil(
         (numerator * get_hours_for_instances(total_instances, seconds_per_instance))
         / denominator
