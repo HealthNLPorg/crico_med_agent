@@ -3,6 +3,7 @@ import logging
 import os
 import pathlib
 import sys
+import gc
 from collections import deque
 from functools import lru_cache, partial
 from math import ceil
@@ -78,6 +79,7 @@ def process(
     minutes_per_job: int,
     seconds_per_instance: int,
 ) -> None:
+    gc.enable()
     def get_id_number(fn: str) -> int:
         return int(fn.split("_")[-1])
 
@@ -137,6 +139,7 @@ def process(
                 full_frame.drop(df.index, inplace=True, axis=0)
                 current_instances = 0
                 shards_remaining -= 1
+                gc.collect()
             if study_id not in already_added:
                 shard_data.append((study_id, fn_sub_frame))
                 already_added.add(study_id)
@@ -169,6 +172,7 @@ def process(
             full_frame.drop(df.index, inplace=True, axis=0)
             current_instances = 0
             shards_remaining -= 1
+            gc.collect()
             # else:
             if study_id not in already_added:
                 shard_data.append((study_id, fn_sub_frame))
