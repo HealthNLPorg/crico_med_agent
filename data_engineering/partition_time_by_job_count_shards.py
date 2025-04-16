@@ -1,9 +1,9 @@
 import argparse
+import gc
 import logging
 import os
 import pathlib
 import sys
-import gc
 from collections import deque
 from functools import lru_cache, partial
 from math import ceil
