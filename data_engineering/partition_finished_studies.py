@@ -31,6 +31,9 @@ def partition_frames(
         if fn_frame_instance_count == fn_original_instance_count:
             yield fn_frame, True
         elif fn_frame_instance_count < fn_original_instance_count:
+            logger.error(
+                f"Missing instances for {fn}, {fn_frame_instance_count} in original frame {fn_original_instance_count} from cTAKES"
+            )
             yield fn_frame, False
         elif fn_frame_instance_count > fn_original_instance_count:
             logger.error(

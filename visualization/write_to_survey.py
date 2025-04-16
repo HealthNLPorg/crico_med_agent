@@ -22,6 +22,17 @@ parser.add_argument("--output_dir", type=str)
 # parser.add_argument("--parse_type", choices=["json", "xml", "xml_first", "json_first"])
 
 
+def serialize_whitespace(sample: str | None) -> str:
+    if sample is None:
+        return "None"
+    return (
+        sample.replace("\n", "<cn>")
+        .replace("\t", "<ct>")
+        .replace("\f", "<cf>")
+        .replace("\r", "<cr>")
+    )
+
+
 def parse_serialized_output(serialized_output: str) -> tuple[str, str]:
     json_raw_parse, xml_raw_parse = [
         text_body.strip()
@@ -49,10 +60,15 @@ def process(excel_input: str, output_dir: str) -> None:
         else pd.read_csv(excel_input, sep="\t")
     )
     input_basename = pathlib.Path(excel_input).stem.strip()
-    reference_path = os.path.join(
-        output_dir, f"REFERENCE_survey_ready_{input_basename}.xlsx"
-    )
-    summarized_path = os.path.join(output_dir, f"survey_ready_{input_basename}.xlsx")
+    # reference_path = os.path.join(
+    #     output_dir, f"REFERENCE_survey_ready_{input_basename}.xlsx"
+    # )
+    # summarized_path = os.path.join(output_dir, f"survey_ready_{input_basename}.xlsx")
+
+    reference_path = os.path.join(output_dir, f"survey_ready_{input_basename}.tsv")
+
+    def get_id_number(fn: str) -> int:
+        return int(fn.split("_")[-1])
 
     df["combined"] = df["serialized_output"].map(parse_serialized_output)
     df["JSON"] = df["combined"].map(itemgetter(0))
@@ -71,14 +87,19 @@ def process(excel_input: str, output_dir: str) -> None:
         return " ".join(section_str.split("_")[1:]).title()
 
     df["section_identifier"] = df["section_identifier"].map(clean_section_id)
+    for column_name in df.columns:
+        df[column_name] = df[column_name].map(serialize_whitespace)
     reference_df = df[
         ["filename", "section_identifier", *attrs, "window_text", "JSON", "XML"]
     ]
-    summarized_df = df[
-        ["filename", "section_identifier", *attrs, "window_text", "JSON", "XML"]
-    ]
-    reference_df.to_excel(reference_path, index=False)
-    summarized_df.to_excel(summarized_path, index=False)
+    reference_df["int_study_id"] = reference_df["filename"].map(get_id_number)
+    reference_df = reference_df.sort_values(by="int_study_id")
+    # summarized_df = df[
+    #     ["filename", "section_identifier", *attrs, "window_text", "JSON", "XML"]
+    # ]
+    # reference_df.to_excel(reference_path, index=False)
+    # summarized_df.to_excel(summarized_path, index=False)
+    reference_df.to_csv(reference_path, sep="\t", index=False)
 
 
 def main() -> None:
