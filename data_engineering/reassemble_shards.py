@@ -2,7 +2,7 @@ import argparse
 import gc
 import logging
 import os
-from collections import deque
+from collections import deque, defaultdict
 from itertools import chain
 from typing import Deque, Iterable
 
@@ -52,19 +52,24 @@ def build_and_write_frame(frame_paths: Iterable[str], output_dir: str) -> None:
     full_frame["int_study_id"] = full_frame["filename"].map(get_id_number)
     full_frame = full_frame.sort_values(by="int_study_id")
     full_frame.drop(columns=["int_study_id"], inplace=True)
+    assert not full_frame.duplicated().any()
     full_frame.to_csv(
         os.path.join(output_dir, "merged_shards.tsv"), sep="\t", index=False
     )
 
 
 def build_and_write_study_ids(study_id_paths: Iterable[str], output_dir: str) -> None:
+    id_to_files = defaultdict(deque)
+
     def load_ids(study_id_path: str) -> Iterable[int]:
         with open(study_id_path, mode="r", encoding="utf-8") as f:
             return map(int, f.readlines())
 
+    all_inds = sorted(chain.from_iterable(map(load_ids, study_id_paths)))
+    assert len(all_inds) == len(set(all_inds))
     with open(
         os.path.join(output_dir, "merged_shards_study_ids.txt"),
-        mode="r",
+        mode="w",
         encoding="utf-8",
     ) as f:
         f.write(

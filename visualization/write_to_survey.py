@@ -33,16 +33,32 @@ def serialize_whitespace(sample: str | None) -> str:
     )
 
 
-def parse_serialized_output(serialized_output: str) -> tuple[str, str]:
-    json_raw_parse, xml_raw_parse = [
-        text_body.strip()
-        for text_body in re.split(
-            r"XML\:|JSON\:",
-            deserialize(literal_eval(serialized_output)[0]),
-        )
-        if len(text_body.strip()) > 0
+def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str]]:
+    model_output = deserialize(literal_eval(serialized_output)[0])
+    # print(re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output))
+    if model_output.strip().lower() == "none":
+        return ["None"], ["None"]
+    groups = re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output)
+    json_raw_parses = [
+        parse_group[5:].strip()
+        for parse_group in groups
+        if parse_group.strip().lower().startswith("json:")
     ]
-    return json_raw_parse, xml_raw_parse
+    xml_raw_parses = [
+        parse_group[4:].strip()
+        for parse_group in groups
+        if parse_group.strip().lower().startswith("xml:")
+    ]
+    return json_raw_parses, xml_raw_parses
+    # json_raw_parse, xml_raw_parse = [
+    #     text_body.strip()
+    #     for text_body in re.split(
+    #         r"XML\:|JSON\:",
+    #         model_output,
+    #     )
+    #     if len(text_body.strip()) > 0
+    # ]
+    # return json_raw_parse, xml_raw_parse
 
 
 def parse_key_from_json(key: str, json_str) -> str:
@@ -51,6 +67,33 @@ def parse_key_from_json(key: str, json_str) -> str:
         return " , ".join(raw_dict.get(key, []))
     except Exception:
         return ""
+
+
+def get_medication(window_text: str) -> str:
+    matches = re.findall(r"<medication>(.+)</medication>", window_text)
+    if len(matches) == 0:
+        # logger.error(f"Window with no real medications:\n\n{window_text}")
+        return ""
+    return matches[0]
+
+
+def select_json(row: pd.Series) -> str:
+    for json_str in row["JSON"]:
+        try:
+            raw_dict = json.loads(json_str)
+        except Exception:
+            continue
+        json_med_str = " , ".join(raw_dict.get("medication", [])).strip().lower()
+        if json_med_str == row["medication"].strip().lower():
+            return json_str
+    return ""
+
+
+def select_xml(row: pd.Series) -> str:
+    for xml_str in row["XML"]:
+        if get_medication(xml_str).strip().lower() == row["medication"].strip().lower():
+            return xml_str
+    return ""
 
 
 def process(excel_input: str, output_dir: str) -> None:
@@ -70,9 +113,14 @@ def process(excel_input: str, output_dir: str) -> None:
     def get_id_number(fn: str) -> int:
         return int(fn.split("_")[-1])
 
+    df["medication"] = df["window_text"].map(get_medication)
+    df = df.loc[df["medication"] != ""]
     df["combined"] = df["serialized_output"].map(parse_serialized_output)
     df["JSON"] = df["combined"].map(itemgetter(0))
     df["XML"] = df["combined"].map(itemgetter(1))
+    df.drop(columns=["combined", "serialized_output"], inplace=True)
+    df["JSON"] = df.apply(select_json, axis=1)
+    df["XML"] = df.apply(select_xml, axis=1)
     attrs = [
         "medication",
         "dosage",
@@ -81,8 +129,9 @@ def process(excel_input: str, output_dir: str) -> None:
         "instruction",
     ]
     for attr in attrs:
-        df[attr] = df["JSON"].map(partial(parse_key_from_json, attr))
-
+        if attr != "medication":
+            df[attr] = df["JSON"].map(partial(parse_key_from_json, attr))
+    df = df.loc[(df["instruction"] != "") | (df["condition"]!= "")]
     def clean_section_id(section_str: str) -> str:
         return " ".join(section_str.split("_")[1:]).title()
 
@@ -97,6 +146,9 @@ def process(excel_input: str, output_dir: str) -> None:
     # summarized_df = df[
     #     ["filename", "section_identifier", *attrs, "window_text", "JSON", "XML"]
     # ]
+    reference_df = df[
+        ["filename", "section_identifier", *attrs, "window_text", "JSON", "XML"]
+    ]
     # reference_df.to_excel(reference_path, index=False)
     # summarized_df.to_excel(summarized_path, index=False)
     reference_df.to_csv(reference_path, sep="\t", index=False)

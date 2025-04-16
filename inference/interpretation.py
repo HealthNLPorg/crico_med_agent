@@ -223,7 +223,7 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         get_window_med_local_offsets, axis=1
     )
     full_frame["window_cas_offsets"] = full_frame.apply(
-        get_window_med_local_offsets, axis=1
+        get_window_cas_offsets, axis=1
     )
     full_frame["window_text"] = full_frame.apply(get_window_text, axis=1)
     full_frame.drop("raw_windows", axis=1, inplace=True)
