@@ -2,18 +2,13 @@ import argparse
 import gc
 import logging
 import os
-import pathlib
-import sys
 from collections import deque
-from functools import lru_cache, partial
 from itertools import chain
-from math import ceil
-from operator import itemgetter
-from typing import Deque, Iterable, cast
+from typing import Deque, Iterable
 
 import pandas as pd
 
-from partition_time_by_job_count_shards import basename_no_ext, mkdir
+from partition_time_by_job_count_shards import mkdir
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument("--input_folders", nargs="+")
@@ -28,12 +23,12 @@ logging.basicConfig(
 )
 
 
-def get_relevant_paths(input_folders: list[str]) -> tuple[Iterable[str]]:
+def get_relevant_paths(input_folders: list[str]) -> tuple[Iterable[str], Iterable[str]]:
     study_id_fn = "shard_study_ids.txt"
     processed_shard_frame_fn = "shard_frame.tsv"
     processed_keyword = "processed"
-    frame_paths = deque()
-    study_id_paths = deque()
+    frame_paths: Deque[str] = deque()
+    study_id_paths: Deque[str] = deque()
     for input_folder in input_folders:
         for root, dirs, files in os.walk(input_folder):
             if study_id_fn in files:
@@ -72,7 +67,11 @@ def build_and_write_study_ids(study_id_paths: Iterable[str], output_dir: str) ->
         mode="r",
         encoding="utf-8",
     ) as f:
-        f.write("\n".join(sorted(chain.from_iterable(map(load_ids, study_id_paths)))))
+        f.write(
+            "\n".join(
+                map(str, sorted(chain.from_iterable(map(load_ids, study_id_paths))))
+            )
+        )
 
 
 def process(input_folders: list[str], output_dir: str) -> None:
