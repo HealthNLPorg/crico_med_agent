@@ -51,7 +51,44 @@ class AnaforaEntity:
     def set_id(self, anafora_id) -> None:
         self.anafora_id = anafora_id
 
+# In the annotations the properties
+# field is of the form:
+# <properties>
+# 	<frequency_number></frequency_number>
+# 	<frequency_unit>$(frequency unit anafora ID)</frequency_unit>
+# </properties>
+# but will leave empty
+# for now since the model doesn't parse for frequency unit
+class Frequency(AnaforaEntity):
+    def __str__(self) -> str:
+        return (
+            "<entity>\n"
+            f"<id>{self.get_id_str()}</id>\n"
+            f"<span>{self.span[0]},{self.span[1]}</span>\n"
+            "<type>Frequency</type>\n"
+            "<parentsType>Attributes_medication</parentsType>\n"
+            "<properties/>\n"
+            "</entity>\n"
+        )
 
+# Similar to frequency, in the annotations the properties
+# field is of the form:
+# <properties>
+# 	<dosage_values>$(dosage value text)</dosage_values>
+# </properties>
+# but will leave empty
+# for now since the model doesn't parse for that subannotation
+class Dosage(AnaforaEntity):
+    def __str__(self) -> str:
+        return (
+            "<entity>\n"
+            f"<id>{self.get_id_str()}</id>\n"
+            f"<span>{self.span[0]},{self.span[1]}</span>\n"
+            "<type>Dosage</type>\n"
+            "<parentsType>Attributes_medication</parentsType>\n"
+            "<properties/>\n"
+            "</entity>\n"
+        )
 class Instruction(AnaforaEntity):
     def __str__(self) -> str:
         return (
