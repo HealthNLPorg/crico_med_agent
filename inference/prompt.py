@@ -103,7 +103,7 @@ def process(
     sample_answer: str | None,
     query_dir: str | None,
     batch_size: int,
-        keeper_columns: list[str],
+    keeper_columns: list[str],
 ) -> None:
     final_path = ""
     if model_name is not None:
@@ -235,8 +235,6 @@ def process(
         #     ]
         # ]
     query_dataframe.to_csv(tsv_out_path, sep="\t", index=False)
-
-
 
 
 def parse_output(sample: dict) -> dict:
@@ -442,5 +440,7 @@ def main() -> None:
         args.batch_size,
         args.keeper_columns,
     )
+
+
 if __name__ == "__main__":
     main()

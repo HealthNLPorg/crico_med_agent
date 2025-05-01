@@ -7,9 +7,17 @@ from typing import Iterable, cast
 
 import numpy as np
 import pandas as pd
-from anafora_data import (AnaforaDocument, Instruction, InstructionCondition,
-                          Medication)
+from anafora_data import (
+    AnaforaDocument,
+    Dosage,
+    Frequency,
+    Instruction,
+    InstructionCondition,
+    Medication,
+    MedicationAttribute,
+)
 from utils import basename_no_ext, mkdir
+
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(
@@ -52,16 +60,11 @@ def to_anafora_file(base_fn: str, fn_frame: pd.DataFrame, output_dir: str) -> No
     medications: list[Medication] = fn_frame.apply(
         get_medication_annotation, axis=1
     ).to_list()
-    attr_lists: list[list[Instruction | InstructionCondition]] = fn_frame.apply(
+    attr_lists: list[list[MedicationAttribute]] = fn_frame.apply(
         parse_attributes, axis=1
     ).to_list()
     for medication, attr_list in zip(medications, attr_lists):
-        medication.set_instructions(
-            attr for attr in attr_list if isinstance(attr, Instruction)
-        )
-        medication.set_instruction_conditions(
-            attr for attr in attr_list if isinstance(attr, InstructionCondition)
-        )
+        medication.set_attributes(attr_list)
     fn_anafora_document.set_entities(
         chain(
             medications,
@@ -222,9 +225,7 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     full_frame["medication_local_offsets"] = full_frame.apply(
         get_window_med_local_offsets, axis=1
     )
-    full_frame["window_cas_offsets"] = full_frame.apply(
-        get_window_cas_offsets, axis=1
-    )
+    full_frame["window_cas_offsets"] = full_frame.apply(get_window_cas_offsets, axis=1)
     full_frame["window_text"] = full_frame.apply(get_window_text, axis=1)
     full_frame.drop("raw_windows", axis=1, inplace=True)
     full_frame.reset_index(drop=True)
