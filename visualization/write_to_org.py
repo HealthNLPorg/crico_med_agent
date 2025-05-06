@@ -12,6 +12,11 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    level=logging.INFO,
+)
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(
     "--excel_input",

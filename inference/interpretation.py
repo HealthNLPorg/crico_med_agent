@@ -2,11 +2,13 @@ import argparse
 import os
 import re
 import json
+import logging
 from ast import literal_eval
 from itertools import chain
 from typing import cast
 from collections.abc import Iterable
 from operator import itemgetter
+from functools import partial
 
 import numpy as np
 import pandas as pd
@@ -19,7 +21,13 @@ from anafora_data import (
 )
 from utils import basename_no_ext, mkdir
 
+logger = logging.getLogger(__name__)
 
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    level=logging.INFO,
+)
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(
     "--input_tsv",
@@ -143,12 +151,15 @@ def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str
     return json_raw_parses, xml_raw_parses
 
 
-def get_medication(window_text: str) -> str:
-    matches = re.findall(r"<medication>(.+)</medication>", window_text)
+def get_tag_body(window_text: str, xml_tag: str) -> str:
+    matches = re.findall(rf"<{xml_tag}>(.+)</{xml_tag}>", window_text)
     if len(matches) == 0:
         # logger.error(f"Window with no real medications:\n\n{window_text}")
         return ""
     return matches[0]
+
+
+get_medication = partial(get_tag_body, xml_tag="medication")
 
 
 def select_json(row: pd.Series) -> str:
@@ -168,6 +179,25 @@ def select_xml(row: pd.Series) -> str:
         if get_medication(xml_str).strip().lower() == row["medication"].strip().lower():
             return xml_str
     return ""
+
+
+def json_str_to_dict(json_str: str) -> dict[str, str]:
+    relevant_attributes = {"dosage", "frequency", "instruction", "condition"}
+
+    def _normalize_value(raw_json_dict: dict[str, list[str]], key: str) -> str:
+        raw_result = raw_json_dict.get(key, default=[""])[0]
+        return " ".join(raw_result.strip().lower().split())
+
+    try:
+        raw_json_dict = json.loads(json_str)
+        normalize_value = partial(_normalize_value, raw_json_dict=raw_json_dict)
+        return {
+            relevant_attribute: normalize_value(relevant_attribute)
+            for relevant_attribute in relevant_attributes
+        }
+    except Exception as _:
+        logger.warning(f"Could not parse JSON string: {json_str}")
+        return dict()
 
 
 def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:

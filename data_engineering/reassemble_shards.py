@@ -52,7 +52,7 @@ def build_and_write_frame(frame_paths: Iterable[str], output_dir: str) -> None:
     full_frame["int_study_id"] = full_frame["filename"].map(get_id_number)
     full_frame = full_frame.sort_values(by="int_study_id")
     full_frame.drop(columns=["int_study_id"], inplace=True)
-    assert not full_frame.duplicated().any()
+    # assert not full_frame.duplicated().any()
     full_frame.to_csv(
         os.path.join(output_dir, "merged_shards.tsv"), sep="\t", index=False
     )

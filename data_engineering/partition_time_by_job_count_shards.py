@@ -80,6 +80,7 @@ def process(
     seconds_per_instance: int,
 ) -> None:
     gc.enable()
+
     def get_id_number(fn: str) -> int:
         return int(fn.split("_")[-1])
 
