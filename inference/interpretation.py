@@ -1,16 +1,17 @@
 import argparse
 import os
 import re
+import json
 from ast import literal_eval
 from itertools import chain
-from typing import Iterable, cast
+from typing import cast
+from collections.abc import Iterable
+from operator import itemgetter
 
 import numpy as np
 import pandas as pd
 from anafora_data import (
     AnaforaDocument,
-    Dosage,
-    Frequency,
     Instruction,
     InstructionCondition,
     Medication,
@@ -37,6 +38,11 @@ parser.add_argument(
     choices=["anafora", "windows"],
     help="Whether stuff is Anafora XML or Windows",
 )
+parser.add_argument(
+    "--get_differences",
+    action="store_true",
+    help="Log differences between JSON and XML where applicable",
+)
 WINDOW_RADIUS: int = 30
 
 
@@ -55,11 +61,20 @@ def to_anafora_files(corpus_frame: pd.DataFrame, output_dir: str) -> None:
         to_anafora_file(base_fn, fn_frame, output_dir)
 
 
-def to_anafora_file(base_fn: str, fn_frame: pd.DataFrame, output_dir: str) -> None:
+def to_anafora_file(
+    base_fn: str, fn_frame: pd.DataFrame, output_dir: str, get_differences: bool
+) -> None:
     fn_anafora_document = AnaforaDocument(filename=base_fn)
     medications: list[Medication] = fn_frame.apply(
         get_medication_annotation, axis=1
     ).to_list()
+
+    fn_frame["combined"] = fn_frame["serialized_output"].map(parse_serialized_output)
+    fn_frame["JSON"] = fn_frame["combined"].map(itemgetter(0))
+    fn_frame["XML"] = fn_frame["combined"].map(itemgetter(1))
+    fn_frame.drop(columns=["combined", "serialized_output"], inplace=True)
+    fn_frame["JSON"] = fn_frame.apply(select_json, axis=1)
+    fn_frame["XML"] = fn_frame.apply(select_xml, axis=1)
     attr_lists: list[list[MedicationAttribute]] = fn_frame.apply(
         parse_attributes, axis=1
     ).to_list()
@@ -98,6 +113,63 @@ def get_local_spans(
         current_begin += step
 
 
+# copied from ../visualization/write_to_org.py
+def deserialize(s: str) -> str:
+    return (
+        s.replace("<cn>", "\n")
+        .replace("<cr>", "\r")
+        .replace("<ct>", "\t")
+        .replace("<cf>", "\f")
+    )
+
+
+# copied from ../visualization/write_to_survey.py
+def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str]]:
+    model_output = deserialize(literal_eval(serialized_output)[0])
+    # print(re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output))
+    if model_output.strip().lower() == "none":
+        return ["None"], ["None"]
+    groups = re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output)
+    json_raw_parses = [
+        parse_group[5:].strip()
+        for parse_group in groups
+        if parse_group.strip().lower().startswith("json:")
+    ]
+    xml_raw_parses = [
+        parse_group[4:].strip()
+        for parse_group in groups
+        if parse_group.strip().lower().startswith("xml:")
+    ]
+    return json_raw_parses, xml_raw_parses
+
+
+def get_medication(window_text: str) -> str:
+    matches = re.findall(r"<medication>(.+)</medication>", window_text)
+    if len(matches) == 0:
+        # logger.error(f"Window with no real medications:\n\n{window_text}")
+        return ""
+    return matches[0]
+
+
+def select_json(row: pd.Series) -> str:
+    for json_str in row["JSON"]:
+        try:
+            raw_dict = json.loads(json_str)
+        except Exception:
+            continue
+        json_med_str = " , ".join(raw_dict.get("medication", [])).strip().lower()
+        if json_med_str == row["medication"].strip().lower():
+            return json_str
+    return ""
+
+
+def select_xml(row: pd.Series) -> str:
+    for xml_str in row["XML"]:
+        if get_medication(xml_str).strip().lower() == row["medication"].strip().lower():
+            return xml_str
+    return ""
+
+
 def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
     filename = row["filename"]
     if row["result"].lower() == "none":
@@ -130,12 +202,14 @@ def output_to_result(row: pd.Series) -> str:
     return full_output.split("\nResult:\n")[-1].strip()
 
 
-def anafora_process(input_tsv: str, output_dir: str) -> None:
+def anafora_process(
+    input_tsv: str, output_dir: str, get_differences: bool = False
+) -> None:
     raw_frame = pd.read_csv(input_tsv, sep="\t")
     raw_frame["result"] = raw_frame.apply(output_to_result, axis=1)
     # filtered_frame = raw_frame.loc[raw_frame["result"].str.lower() != "none"]
     # to_anafora_files(filtered_frame, output_dir)
-    to_anafora_files(raw_frame, output_dir)
+    to_anafora_files(raw_frame, output_dir, get_differences)
 
 
 def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
@@ -245,7 +319,7 @@ def main() -> None:
     args = parser.parse_args()
     match args.mode:
         case "anafora":
-            anafora_process(args.input_tsv, args.output_dir)
+            anafora_process(args.input_tsv, args.output_dir, args.get_differences)
         case "windows":
             windows_process(args.input_tsv, args.output_dir)
 
