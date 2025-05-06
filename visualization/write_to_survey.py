@@ -33,9 +33,17 @@ def serialize_whitespace(sample: str | None) -> str:
     )
 
 
+def field_is_hallucinatory(
+    row: pd.Series, ground_truth_column: str, field: str
+) -> bool:
+    def normalize_str(sample: str) -> str:
+        return sample.strip().lower()
+
+    return normalize_str(row[field]) in normalize_str(row[ground_truth_column])
+
+
 def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str]]:
     model_output = deserialize(literal_eval(serialized_output)[0])
-    # print(re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output))
     if model_output.strip().lower() == "none":
         return ["None"], ["None"]
     groups = re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output)
@@ -50,15 +58,6 @@ def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str
         if parse_group.strip().lower().startswith("xml:")
     ]
     return json_raw_parses, xml_raw_parses
-    # json_raw_parse, xml_raw_parse = [
-    #     text_body.strip()
-    #     for text_body in re.split(
-    #         r"XML\:|JSON\:",
-    #         model_output,
-    #     )
-    #     if len(text_body.strip()) > 0
-    # ]
-    # return json_raw_parse, xml_raw_parse
 
 
 def parse_key_from_json(key: str, json_str) -> str:
@@ -72,7 +71,6 @@ def parse_key_from_json(key: str, json_str) -> str:
 def get_medication(window_text: str) -> str:
     matches = re.findall(r"<medication>(.+)</medication>", window_text)
     if len(matches) == 0:
-        # logger.error(f"Window with no real medications:\n\n{window_text}")
         return ""
     return matches[0]
 
@@ -131,7 +129,16 @@ def process(excel_input: str, output_dir: str) -> None:
     for attr in attrs:
         if attr != "medication":
             df[attr] = df["JSON"].map(partial(parse_key_from_json, attr))
-    df = df.loc[(df["instruction"] != "") | (df["condition"]!= "")]
+            df[f"{attr}_hallucinatory"] = df.apply(
+                partial(
+                    field_is_hallucinatory,
+                    ground_truth_column="window_text",
+                    field=attr,
+                )
+            )
+            df.loc[df[f"{attr}_hallucinatory"], attr] = ""
+    df = df.loc[(df["instruction"] != "") | (df["condition"] != "")]
+
     def clean_section_id(section_str: str) -> str:
         return " ".join(section_str.split("_")[1:]).title()
 
