@@ -19,6 +19,7 @@ parser.add_argument(
     type=str,
 )
 parser.add_argument("--output_dir", type=str)
+parser.add_argument("--filter_hallucinations", action="store_true")
 # parser.add_argument("--parse_type", choices=["json", "xml", "xml_first", "json_first"])
 
 
@@ -94,7 +95,7 @@ def select_xml(row: pd.Series) -> str:
     return ""
 
 
-def process(excel_input: str, output_dir: str) -> None:
+def process(excel_input: str, output_dir: str, filter_hallucinations: bool) -> None:
     df = (
         pd.read_excel(excel_input)
         if excel_input.lower().endswith("xlsx")
@@ -106,7 +107,12 @@ def process(excel_input: str, output_dir: str) -> None:
     # )
     # summarized_path = os.path.join(output_dir, f"survey_ready_{input_basename}.xlsx")
 
-    reference_path = os.path.join(output_dir, f"survey_ready_{input_basename}.tsv")
+    reference_path = os.path.join(
+        output_dir,
+        f"survey_ready_{input_basename}_hallucinatory_attributes_filtered.tsv"
+        if filter_hallucinations
+        else f"survey_ready_{input_basename}.tsv",
+    )
 
     def get_id_number(fn: str) -> int:
         return int(fn.split("_")[-1])
@@ -129,14 +135,15 @@ def process(excel_input: str, output_dir: str) -> None:
     for attr in attrs:
         if attr != "medication":
             df[attr] = df["JSON"].map(partial(parse_key_from_json, attr))
-            df[f"{attr}_hallucinatory"] = df.apply(
-                partial(
-                    field_is_hallucinatory,
-                    ground_truth_column="window_text",
-                    field=attr,
+            if filter_hallucinations:
+                df[f"{attr}_hallucinatory"] = df.apply(
+                    partial(
+                        field_is_hallucinatory,
+                        ground_truth_column="window_text",
+                        field=attr,
+                    )
                 )
-            )
-            df.loc[df[f"{attr}_hallucinatory"], attr] = ""
+                df.loc[df[f"{attr}_hallucinatory"], attr] = ""
     df = df.loc[(df["instruction"] != "") | (df["condition"] != "")]
 
     def clean_section_id(section_str: str) -> str:
@@ -163,7 +170,7 @@ def process(excel_input: str, output_dir: str) -> None:
 
 def main() -> None:
     args = parser.parse_args()
-    process(args.excel_input, args.output_dir)
+    process(args.excel_input, args.output_dir, args.filter_hallucinations)
 
 
 if __name__ == "__main__":
