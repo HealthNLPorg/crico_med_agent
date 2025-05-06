@@ -160,7 +160,7 @@ class Medication(AnaforaEntity):
                 f"<frequency_>{frequency.get_id_str()}</frequency_>\n"
                 for frequency in sorted(self.frequencies, key=get_span)
             )
-            if len(self.frequencys) > 0
+            if len(self.frequencies) > 0
             else "<frequency_/>\n"
         )
         dosage_str = (

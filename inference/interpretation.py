@@ -63,10 +63,10 @@ def get_medication_annotation(row: pd.Series) -> Medication:
     return medication
 
 
-def to_anafora_files(corpus_frame: pd.DataFrame, output_dir: str) -> None:
+def to_anafora_files(corpus_frame: pd.DataFrame, output_dir: str, get_differences: bool) -> None:
     for fn, fn_frame in corpus_frame.groupby(["filename"]):
         (base_fn,) = cast(tuple[str,], fn)
-        to_anafora_file(base_fn, fn_frame, output_dir)
+        to_anafora_file(base_fn, fn_frame, output_dir, get_differences)
 
 
 def to_anafora_file(
@@ -101,9 +101,9 @@ def get_local_spans(
     tagged_str: str, relevant_tags: set[str]
 ) -> Iterable[tuple[str, int, int]]:
     tag_or_body = r"[^<>/]+"
-    tag_regexes = {f"<{tag}>{tag_or_body}</{tag}>" for tag in relevant_tags}
-    relevant_tags_capture = f"({'|'.join(tag_regexes)})"
-    tag_and_body_capture = f"<({tag_or_body})>({tag_or_body})</{tag_or_body}>"
+    tag_regexes = {rf"<{tag}>{tag_or_body}</{tag}>" for tag in relevant_tags}
+    relevant_tags_capture = rf"({'|'.join(tag_regexes)})"
+    tag_and_body_capture = rf"<({tag_or_body})>({tag_or_body})</{tag_or_body}>"
     current_begin = 0
     step = 0
     # TODO - revisit and see if this can be replaced with re.finditer
@@ -154,7 +154,6 @@ def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str
 def get_tag_body(window_text: str, xml_tag: str) -> str:
     matches = re.findall(rf"<{xml_tag}>(.+)</{xml_tag}>", window_text)
     if len(matches) == 0:
-        # logger.error(f"Window with no real medications:\n\n{window_text}")
         return ""
     return matches[0]
 
@@ -185,12 +184,12 @@ def json_str_to_dict(json_str: str) -> dict[str, str]:
     relevant_attributes = {"dosage", "frequency", "instruction", "condition"}
 
     def _normalize_value(raw_json_dict: dict[str, list[str]], key: str) -> str:
-        raw_result = raw_json_dict.get(key, default=[""])[0]
+        raw_result = raw_json_dict.get(key, [""])[0]
         return " ".join(raw_result.strip().lower().split())
 
     try:
         raw_json_dict = json.loads(json_str)
-        normalize_value = partial(_normalize_value, raw_json_dict=raw_json_dict)
+        normalize_value = partial(_normalize_value, raw_json_dict)
         return {
             relevant_attribute: normalize_value(relevant_attribute)
             for relevant_attribute in relevant_attributes
@@ -198,6 +197,19 @@ def json_str_to_dict(json_str: str) -> dict[str, str]:
     except Exception as _:
         logger.warning(f"Could not parse JSON string: {json_str}")
         return dict()
+
+
+def xml_str_to_dict(xml_str: str) -> dict[str, str]:
+    relevant_attributes = {"dosage", "frequency", "instruction", "condition"}
+
+    def normalize_value(key: str) -> str:
+        raw_tag_body = get_tag_body(xml_str, key)
+        return " ".join(raw_tag_body.strip().lower().split())
+
+    return {
+        relevant_attribute: normalize_value(relevant_attribute)
+        for relevant_attribute in relevant_attributes
+    }
 
 
 def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
@@ -262,7 +274,7 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         if normalized == "none" or any(
             bad_term in normalized for bad_term in bad_terms
         ):
-            return {}
+            return set()
         return {med.lower().strip() for med in raw_output.split(",")}
 
     def get_central_index(med_begin: int, token_index_ls: list[tuple[int, int]]) -> int:
