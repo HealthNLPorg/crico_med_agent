@@ -98,7 +98,7 @@ def get_local_spans(
         current_begin += step
 
 
-def parse_attributes(row: pd.Series) -> list[Instruction | InstructionCondition]:
+def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
     filename = row["filename"]
     if row["result"].lower() == "none":
         return []
