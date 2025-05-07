@@ -16,6 +16,8 @@ from anafora_data import (
     AnaforaDocument,
     Instruction,
     InstructionCondition,
+    Dosage,
+    Frequency,
     Medication,
     MedicationAttribute,
 )
@@ -99,7 +101,7 @@ def to_anafora_file(
     fn_anafora_document.write_to_dir(output_dir)
 
 
-def get_local_spans(
+def get_local_spans_from_xml(
     tagged_str: str, relevant_tags: set[str]
 ) -> Iterable[tuple[str, int, int]]:
     tag_or_body = r"[^<>/]+"
@@ -121,6 +123,23 @@ def get_local_spans(
             step = len(body)
             yield tag, current_begin, current_begin + step
         current_begin += step
+
+
+def get_local_spans_from_json(
+    window_text: str, json_dict: dict[str, str]
+) -> Iterable[tuple[str, int, int]]:
+    def get_span(re_match_obj: re.Match) -> tuple[int, int]:
+        return re_match_obj.span()
+
+    def strategy(spans: Iterable[tuple[int, int]]) -> Iterable[tuple[int, int]]:
+        # TODO tweak as necessary
+        return spans
+
+    # TODO adapt to cases with multiple values
+    for attr, body in json_dict.items():
+        for match_span in strategy(map(get_span, re.finditer(body, window_text))):
+            begin, end = match_span
+            yield attr, begin, end
 
 
 # copied from ../visualization/write_to_org.py
@@ -179,18 +198,24 @@ def select_xml(row: pd.Series) -> str:
     return ""
 
 
-def json_str_to_dict(json_str: str) -> dict[str, str]:
+def json_str_to_dict(json_str: str, normalize: bool = False) -> dict[str, str]:
     relevant_attributes = {"dosage", "frequency", "instruction", "condition"}
 
-    def _normalize_value(raw_json_dict: dict[str, list[str]], key: str) -> str:
-        raw_result = raw_json_dict.get(key, [""])[0]
-        return " ".join(raw_result.strip().lower().split())
+    if normalize:
+
+        def _get_value(raw_json_dict: dict[str, list[str]], key: str) -> str:
+            raw_result = raw_json_dict.get(key, [""])[0]
+            return " ".join(raw_result.strip().lower().split())
+    else:
+
+        def _get_value(raw_json_dict: dict[str, list[str]], key: str) -> str:
+            return raw_json_dict.get(key, [""])[0]
 
     try:
         raw_json_dict = json.loads(json_str)
-        normalize_value = partial(_normalize_value, raw_json_dict)
+        get_value = partial(_get_value, raw_json_dict)
         return {
-            relevant_attribute: normalize_value(relevant_attribute)
+            relevant_attribute: get_value(relevant_attribute)
             for relevant_attribute in relevant_attributes
         }
     except Exception as _:
@@ -198,44 +223,159 @@ def json_str_to_dict(json_str: str) -> dict[str, str]:
         return dict()
 
 
-def xml_str_to_dict(xml_str: str) -> dict[str, str]:
+def xml_str_to_dict(xml_str: str, normalize: bool = False) -> dict[str, str]:
     relevant_attributes = {"dosage", "frequency", "instruction", "condition"}
 
-    def normalize_value(key: str) -> str:
-        raw_tag_body = get_tag_body(xml_str, key)
-        return " ".join(raw_tag_body.strip().lower().split())
+    if normalize:
+
+        def get_value(key: str) -> str:
+            raw_tag_body = get_tag_body(xml_str, key)
+            return " ".join(raw_tag_body.strip().lower().split())
+    else:
+
+        def get_value(key: str) -> str:
+            return get_tag_body(xml_str, key)
 
     return {
-        relevant_attribute: normalize_value(relevant_attribute)
+        relevant_attribute: get_value(relevant_attribute)
         for relevant_attribute in relevant_attributes
     }
 
 
+def which_values_hallucinatory(
+    attr_name_to_text: dict[str, str], ground_truth: str
+) -> dict[str, bool]:
+    return {attr: text in ground_truth for attr, text in attr_name_to_text.items()}
+
+
 def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
-    filename = row["filename"]
-    if row["result"].lower() == "none":
+    if row["JSON"] == "" and row["XML"] == "":
         return []
-    local_spans = get_local_spans(
-        # row["output"], {"instruction", "instructionCondition"}
-        row["result"],
-        {"instruction", "instructionCondition"},
+    json_dict = json_str_to_dict(row["JSON"])
+    xml_dict = xml_str_to_dict(row["XML"])
+    xml_hallucinations = which_values_hallucinatory(xml_dict, row["window_text"])
+    json_hallucinations = which_values_hallucinatory(json_dict, row["window_text"])
+    if json_dict == xml_dict:
+        if not any(xml_hallucinations.values()) and not any(
+            json_hallucinations.values()
+        ):
+            logger.info("JSON and XML agree and are entirely non-hallucinatory")
+            return get_spans_from_xml(
+                row, {"instruction", "condition", "dosage", "frequency"}
+            )
+        else:
+            assert (
+                xml_hallucinations == json_hallucinations
+            ), f"Disagreement at hallucination level but not text level for JSON {json_dict} and XML {xml_dict}"
+            if all(xml_hallucinations.values()):
+                logger.info(
+                    "JSON and XML agree and are both entirely hallucinatory - dumping instance"
+                )
+                return []
+            else:
+                logger.info(
+                    "JSON and XML agree and are partially hallucinatory - defaulting to non-hallucinatory JSON for cleaner parsing"
+                )
+                return get_spans_from_json(
+                    row,
+                    {
+                        k: v
+                        for k, v in json_dict.items()
+                        if not json_hallucinations.get(k, False)
+                    },
+                )
+    else:
+        if not any(xml_hallucinations.values()):
+            logger.info("JSON and XML disagree - XML is non-hallucinatory")
+            return get_spans_from_xml(
+                row, {"instruction", "condition", "dosage", "frequency"}
+            )
+        elif all(xml_hallucinations.values()) and all(json_hallucinations.values()):
+            logger.info(
+                "JSON and XML disagree and are both entirely hallucinatory - dumping instance"
+            )
+            return []
+        else:
+            logger.info(
+                "JSON and XML disagree and XML is partially hallucinatory - defaulting to non-hallucinatory JSON for cleaner parsing"
+            )
+            return get_spans_from_json(
+                row,
+                {
+                    k: v
+                    for k, v in json_dict.items()
+                    if not json_hallucinations.get(k, False)
+                },
+            )
+
+
+def build_medication_attribute(
+    filename: str, window_begin: int, attr_type: str, local_begin: int, local_end: int
+) -> MedicationAttribute | None:
+    cas_level_span = (window_begin + local_begin, window_begin + local_end)
+    match attr_type:
+        case "instruction":
+            return Instruction(cas_level_span, filename)
+        case "condition":
+            return InstructionCondition(cas_level_span, filename)
+        case "dosage":
+            return Dosage(cas_level_span, filename)
+        case "frequency":
+            return Frequency(cas_level_span, filename)
+        case other:
+            logger.warning(f"Invalid XML tag: {other} . Ignoring")
+            return None
+
+
+def get_spans_from_xml(row: pd.Series, attrs: set[str]) -> list[MedicationAttribute]:
+    filename = row["filename"]
+    local_spans = get_local_spans_from_xml(
+        # row["result"],
+        row["XML"],
+        # {"instruction", "instructionCondition"},
+        attrs,
     )
     window_begin, _ = literal_eval(row["window offsets"])
 
-    def to_attr(
-        attr_type: str, local_begin: int, local_end: int
-    ) -> Instruction | InstructionCondition:
-        cas_level_span = (window_begin + local_begin, window_begin + local_end)
-        return (
-            Instruction(cas_level_span, filename)
-            if attr_type == "instruction"
-            else InstructionCondition(cas_level_span, filename)
-        )
+    to_attr = partial(build_medication_attribute, filename, window_begin)
+    result = cast(
+        list[MedicationAttribute],
+        [
+            to_attr(attr_type, local_begin, local_end)
+            for attr_type, local_begin, local_end in local_spans
+            if to_attr(attr_type, local_begin, local_end) is not None
+        ],
+    )
+    return result
 
-    return [
-        to_attr(attr_type, local_begin, local_end)
-        for attr_type, local_begin, local_end in local_spans
-    ]
+
+def get_spans_from_json(
+    row: pd.Series, json_dict: dict[str, str]
+) -> list[MedicationAttribute]:
+    # some possible options,
+    # we can find all the match spans using re.finditer,
+    # then can choose one or more spans
+    # by some strategy, e.g. first,
+    # last, closest to the medication.
+    # How often this is necessary and
+    # what strategy to use should be determined on the dev set
+    filename = row["filename"]
+    local_spans = get_local_spans_from_json(
+        row["window_text"],
+        json_dict,
+    )
+    window_begin, _ = literal_eval(row["window offsets"])
+    to_attr = partial(build_medication_attribute, filename, window_begin)
+
+    result = cast(
+        list[MedicationAttribute],
+        [
+            to_attr(attr_type, local_begin, local_end)
+            for attr_type, local_begin, local_end in local_spans
+            if to_attr(attr_type, local_begin, local_end) is not None
+        ],
+    )
+    return result
 
 
 def output_to_result(row: pd.Series) -> str:
