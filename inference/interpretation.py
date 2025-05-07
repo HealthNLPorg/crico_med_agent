@@ -63,7 +63,9 @@ def get_medication_annotation(row: pd.Series) -> Medication:
     return medication
 
 
-def to_anafora_files(corpus_frame: pd.DataFrame, output_dir: str, get_differences: bool) -> None:
+def to_anafora_files(
+    corpus_frame: pd.DataFrame, output_dir: str, get_differences: bool
+) -> None:
     for fn, fn_frame in corpus_frame.groupby(["filename"]):
         (base_fn,) = cast(tuple[str,], fn)
         to_anafora_file(base_fn, fn_frame, output_dir, get_differences)
@@ -134,7 +136,6 @@ def deserialize(s: str) -> str:
 # copied from ../visualization/write_to_survey.py
 def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str]]:
     model_output = deserialize(literal_eval(serialized_output)[0])
-    # print(re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output))
     if model_output.strip().lower() == "none":
         return ["None"], ["None"]
     groups = re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output)
@@ -151,14 +152,11 @@ def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str
     return json_raw_parses, xml_raw_parses
 
 
-def get_tag_body(window_text: str, xml_tag: str) -> str:
+def get_tag_body(xml_tag: str, window_text: str) -> str:
     matches = re.findall(rf"<{xml_tag}>(.+)</{xml_tag}>", window_text)
     if len(matches) == 0:
         return ""
     return matches[0]
-
-
-get_medication = partial(get_tag_body, xml_tag="medication")
 
 
 def select_json(row: pd.Series) -> str:
@@ -174,6 +172,7 @@ def select_json(row: pd.Series) -> str:
 
 
 def select_xml(row: pd.Series) -> str:
+    get_medication = partial(get_tag_body, "medication")
     for xml_str in row["XML"]:
         if get_medication(xml_str).strip().lower() == row["medication"].strip().lower():
             return xml_str
