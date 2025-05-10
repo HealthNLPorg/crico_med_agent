@@ -82,9 +82,11 @@ def get_medication_annotation(row: pd.Series) -> Medication:
     return medication
 
 
-def get_medication_text(window_text: str) -> str:
+def get_medication_text(window_text: str) -> str | None:
     matches = get_tagged_bodies("medication", window_text)
-    assert len(matches) == 1
+    assert len(matches) == 1 or len(matches) == 0, window_text
+    if len(matches) == 0:
+        return None
     return matches[0]
 
 
@@ -104,6 +106,13 @@ def to_anafora_file(
         get_medication_annotation, axis=1
     ).to_list()
 
+    def contains_tags(tag_core: str, target: str) -> bool:
+        open_tag = f"<{tag_core}>"
+        close_tag = f"</{tag_core}>"
+        return open_tag in target and close_tag in target
+
+    contains_med_tags = partial(contains_tags, "medication")
+    fn_frame = fn_frame.loc[fn_frame["window_text"].map(contains_med_tags)]
     fn_frame["medication"] = fn_frame["window_text"].map(get_medication_text)
     fn_frame["combined"] = fn_frame["serialized_output"].map(parse_serialized_output)
     fn_frame["JSON"] = fn_frame["combined"].map(itemgetter(0))
@@ -136,6 +145,9 @@ def get_local_spans_from_xml(
     step = 0
     # TODO - revisit and see if this can be replaced with re.finditer
     # though for now don't fix what isn't broken
+    # TODO - might have to empirically
+    # confirm this via the anafora visualization
+    # code in format-writer
     for run in re.split(relevant_tags_capture, tagged_str):
         potential_match = re.search(tag_and_body_capture, run)
         if potential_match is None:
@@ -222,7 +234,8 @@ def select_json(row: pd.Series) -> str:
 def select_xml(row: pd.Series) -> str:
     for xml_str in row["XML"]:
         if (
-            get_medication_text(xml_str).strip().lower()
+            get_medication_text(xml_str) is not None
+            and get_medication_text(xml_str).strip().lower()
             == row["medication"].strip().lower()
         ):
             return xml_str
@@ -231,7 +244,10 @@ def select_xml(row: pd.Series) -> str:
 
 def json_str_to_dict(json_str: str) -> dict[str, Counter[str]]:
     relevant_attributes = {"dosage", "frequency", "instruction", "condition"}
-
+    # TODO - figure out if the one getting lost in the test set is
+    # actually a bug
+    if len(json_str.strip()) == 0:
+        return dict()
     try:
         raw_json_dict = json.loads(json_str)
     except Exception as e:
@@ -260,7 +276,12 @@ def get_cf_dict(
     ) -> dict[str, ConfusionMatrix]:
         instance_to_cfm = {}
         for instance, prediction_count in disovered_instances.items():
-            gold_count = len(re.findall(instance, ground_truth))
+            gold_count = sum(
+                1
+                for _ in re.findall(
+                    misc_character_escape(instance), misc_character_escape(ground_truth)
+                )
+            )
             # rough justice since not span level but
             if gold_count == prediction_count:
                 instance_to_cfm[instance] = ConfusionMatrix(
@@ -402,7 +423,10 @@ def build_medication_attribute(
         case "frequency":
             return Frequency(cas_level_span, filename)
         case other:
-            logger.warning(f"Invalid XML tag: {other} . Ignoring")
+            if other != "medication":
+                logger.warning(
+                    f"Ignoring tag {other} - if medication it is because we parsed it earlier"
+                )
             return None
 
 
@@ -414,7 +438,7 @@ def get_spans_from_xml(row: pd.Series, attrs: set[str]) -> list[MedicationAttrib
         # {"instruction", "instructionCondition"},
         attrs,
     )
-    window_begin, _ = literal_eval(row["window offsets"])
+    window_begin, _ = literal_eval(row["window_cas_offsets"])
 
     to_attr = partial(build_medication_attribute, filename, window_begin)
     result = cast(
@@ -473,15 +497,19 @@ def anafora_process(
     to_anafora_files(raw_frame, output_dir, get_differences)
 
 
+def misc_character_escape(raw: str) -> str:
+    result = re.sub("\(", "\\(", raw)
+    result = re.sub("\)", "\\)", raw)
+    result = re.sub("\[", "\\[", raw)
+    result = re.sub("\]", "\\]", raw)
+    result = re.sub("\+", "\\+", raw)
+    return result
+
+
 def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     def serialized_output_to_unique_meds(output: list[str]) -> set[str]:
         raw_output = re.sub("<c[rtnf]>", "", output[0])
-        raw_output = re.sub("\(", "\\(", raw_output)
-        raw_output = re.sub("\)", "\\)", raw_output)
-        raw_output = re.sub("\[", "\\[", raw_output)
-        raw_output = re.sub("\]", "\\]", raw_output)
-        raw_output = re.sub("\+", "\\+", raw_output)
-        normalized = raw_output.lower()
+        normalized = misc_character_escape(raw_output).lower()
         bad_terms = {
             "begin_of_text",
             "end_of_text",
