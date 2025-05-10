@@ -4,9 +4,10 @@ import re
 import json
 import logging
 from ast import literal_eval
-from itertools import chain
+from itertools import chain, islice
 from typing import cast
 from collections.abc import Iterable
+from collections import Counter
 from operator import itemgetter
 from functools import partial
 
@@ -56,13 +57,35 @@ parser.add_argument(
 WINDOW_RADIUS: int = 30
 
 
+class ConfusionMatrix(Counter):
+    def __init__(self, tp_total: int, fp_total: int, fn_total: int) -> None:
+        self.totals = Counter(
+            {
+                "TP": tp_total,
+                "FP": fp_total,
+                "FN": fn_total,
+            }
+        )
+
+    def is_complete_hallucination(self) -> bool:
+        return self.totals["FP"] > 0 and self.totals["TP"] == 0
+
+
 def get_medication_annotation(row: pd.Series) -> Medication:
-    cas_level_span = literal_eval(row["medication offsets"])
+    # inappropriately named because I SCREWED UP
+    # YES THAT'S RIGHT I SCREWED UP CAN YOU BELIEVE IT???????????
+    cas_level_span = literal_eval(row["medication_local_offsets"])
     filename = row["filename"]
     medication = Medication(span=cas_level_span, filename=filename)
-    medication.set_cui_str(row["cuis"])
-    medication.set_tui_str(row["tuis"])
+    medication.set_cui_str(row.get("cuis", ""))
+    medication.set_tui_str(row.get("tuis", ""))
     return medication
+
+
+def get_medication_text(window_text: str) -> str:
+    matches = get_tagged_bodies("medication", window_text)
+    assert len(matches) == 1
+    return matches[0]
 
 
 def to_anafora_files(
@@ -81,6 +104,7 @@ def to_anafora_file(
         get_medication_annotation, axis=1
     ).to_list()
 
+    fn_frame["medication"] = fn_frame["window_text"].map(get_medication_text)
     fn_frame["combined"] = fn_frame["serialized_output"].map(parse_serialized_output)
     fn_frame["JSON"] = fn_frame["combined"].map(itemgetter(0))
     fn_frame["XML"] = fn_frame["combined"].map(itemgetter(1))
@@ -126,18 +150,26 @@ def get_local_spans_from_xml(
 
 
 def get_local_spans_from_json(
-    window_text: str, json_dict: dict[str, str]
+    window_text: str, json_dict: dict[str, Counter[str]]
 ) -> Iterable[tuple[str, int, int]]:
     def get_span(re_match_obj: re.Match) -> tuple[int, int]:
         return re_match_obj.span()
 
-    def strategy(spans: Iterable[tuple[int, int]]) -> Iterable[tuple[int, int]]:
-        # TODO tweak as necessary
-        return spans
+    def get_matches(
+        occurence_count: Counter[str], window_text: str
+    ) -> Iterable[tuple[int, int]]:
+        for occurence, count in occurence_count.items():
+            all_matches = re.finditer(occurence, window_text)
+            yield from strategy(all_matches, count)
+
+    def strategy(matches: Iterable[re.Match[str]], count) -> Iterable[tuple[int, int]]:
+        # TODO tweak as necessary - might have to add other information from the row
+        return map(get_span, islice(matches, count))
 
     # TODO adapt to cases with multiple values
-    for attr, body in json_dict.items():
-        for match_span in strategy(map(get_span, re.finditer(body, window_text))):
+    for attr, occurence_count in json_dict.items():
+        # for match_span in strategy(map(get_span, re.finditer(body, window_text))):
+        for match_span in get_matches(occurence_count, window_text):
             begin, end = match_span
             yield attr, begin, end
 
@@ -171,11 +203,8 @@ def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str
     return json_raw_parses, xml_raw_parses
 
 
-def get_tag_body(xml_tag: str, window_text: str) -> str:
-    matches = re.findall(rf"<{xml_tag}>(.+)</{xml_tag}>", window_text)
-    if len(matches) == 0:
-        return ""
-    return matches[0]
+def get_tagged_bodies(xml_tag: str, window_text: str) -> list[str]:
+    return re.findall(rf"<{xml_tag}>(.+)</{xml_tag}>", window_text)
 
 
 def select_json(row: pd.Series) -> str:
@@ -191,61 +220,70 @@ def select_json(row: pd.Series) -> str:
 
 
 def select_xml(row: pd.Series) -> str:
-    get_medication = partial(get_tag_body, "medication")
     for xml_str in row["XML"]:
-        if get_medication(xml_str).strip().lower() == row["medication"].strip().lower():
+        if (
+            get_medication_text(xml_str).strip().lower()
+            == row["medication"].strip().lower()
+        ):
             return xml_str
     return ""
 
 
-def json_str_to_dict(json_str: str, normalize: bool = False) -> dict[str, str]:
+def json_str_to_dict(json_str: str) -> dict[str, Counter[str]]:
     relevant_attributes = {"dosage", "frequency", "instruction", "condition"}
-
-    if normalize:
-
-        def _get_value(raw_json_dict: dict[str, list[str]], key: str) -> str:
-            raw_result = raw_json_dict.get(key, [""])[0]
-            return " ".join(raw_result.strip().lower().split())
-    else:
-
-        def _get_value(raw_json_dict: dict[str, list[str]], key: str) -> str:
-            return raw_json_dict.get(key, [""])[0]
 
     try:
         raw_json_dict = json.loads(json_str)
-        get_value = partial(_get_value, raw_json_dict)
-        return {
-            relevant_attribute: get_value(relevant_attribute)
-            for relevant_attribute in relevant_attributes
-        }
-    except Exception as _:
-        logger.warning(f"Could not parse JSON string: {json_str}")
+    except Exception as e:
+        logger.warning(f"Could not parse JSON string: {json_str} - from exception {e}")
         return dict()
-
-
-def xml_str_to_dict(xml_str: str, normalize: bool = False) -> dict[str, str]:
-    relevant_attributes = {"dosage", "frequency", "instruction", "condition"}
-
-    if normalize:
-
-        def get_value(key: str) -> str:
-            raw_tag_body = get_tag_body(xml_str, key)
-            return " ".join(raw_tag_body.strip().lower().split())
-    else:
-
-        def get_value(key: str) -> str:
-            return get_tag_body(xml_str, key)
-
     return {
-        relevant_attribute: get_value(relevant_attribute)
+        relevant_attribute: Counter(raw_json_dict.get(relevant_attribute, []))
         for relevant_attribute in relevant_attributes
     }
 
 
-def which_values_hallucinatory(
-    attr_name_to_text: dict[str, str], ground_truth: str
-) -> dict[str, bool]:
-    return {attr: text in ground_truth for attr, text in attr_name_to_text.items()}
+def xml_str_to_dict(xml_str: str) -> dict[str, Counter[str]]:
+    relevant_attributes = {"dosage", "frequency", "instruction", "condition"}
+
+    return {
+        relevant_attribute: Counter(get_tagged_bodies(relevant_attribute, xml_str))
+        for relevant_attribute in relevant_attributes
+    }
+
+
+def get_cf_dict(
+    attr_name_to_instances: dict[str, Counter[str]], ground_truth: str
+) -> dict[str, dict[str, ConfusionMatrix]]:
+    def compute_hallucinations(
+        disovered_instances: Counter[str],
+    ) -> dict[str, ConfusionMatrix]:
+        instance_to_cfm = {}
+        for instance, prediction_count in disovered_instances.items():
+            gold_count = len(re.findall(instance, ground_truth))
+            # rough justice since not span level but
+            if gold_count == prediction_count:
+                instance_to_cfm[instance] = ConfusionMatrix(
+                    tp_total=gold_count, fp_total=0, fn_total=0
+                )
+            elif gold_count > prediction_count:
+                instance_to_cfm[instance] = ConfusionMatrix(
+                    tp_total=prediction_count,
+                    fp_total=0,
+                    fn_total=gold_count - prediction_count,
+                )
+            else:
+                instance_to_cfm[instance] = ConfusionMatrix(
+                    tp_total=prediction_count,
+                    fp_total=prediction_count - gold_count,
+                    fn_total=0,
+                )
+        return instance_to_cfm
+
+    return {
+        attr: compute_hallucinations(instances)
+        for attr, instances in attr_name_to_instances.items()
+    }
 
 
 def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
@@ -253,21 +291,66 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
         return []
     json_dict = json_str_to_dict(row["JSON"])
     xml_dict = xml_str_to_dict(row["XML"])
-    xml_hallucinations = which_values_hallucinatory(xml_dict, row["window_text"])
-    json_hallucinations = which_values_hallucinatory(json_dict, row["window_text"])
+    xml_cf_dict = get_cf_dict(xml_dict, row["window_text"])
+    json_cf_dict = get_cf_dict(json_dict, row["window_text"])
+
+    def parse_has_no_total_hallucinations(
+        cf_dict: dict[str, dict[str, ConfusionMatrix]],
+    ) -> bool:
+        return not any(
+            cf.is_complete_hallucination()
+            for instance_to_cf in cf_dict.values()
+            for cf in instance_to_cf.values()
+        )
+
+    def parse_is_all_total_hallucinations(
+        cf_dict: dict[str, dict[str, ConfusionMatrix]],
+    ) -> bool:
+        return all(
+            cf.is_complete_hallucination()
+            for instance_to_cf in cf_dict.values()
+            for cf in instance_to_cf.values()
+        )
+
+    def filter_hallucinatory(
+        occurence_dict: dict[str, Counter[str]],
+        cf_dict: dict[str, dict[str, ConfusionMatrix]],
+    ) -> dict[str, Counter[str]]:
+        # return {
+        #     k: v for k, v in occurence_dict.items() if not json_cf_dict.get(k, False)
+        # }
+        def compare(
+            ocurrence_count: Counter[str], occurence_to_cf: dict[str, ConfusionMatrix]
+        ) -> Counter[str]:
+            filtered_count: Counter[str] = Counter()
+            for occurence, count in occurence_count.items():
+                cf = occurence_to_cf[occurence]
+                if not cf.is_complete_hallucination():
+                    # filtered_count[occurence] = count - cf.totals["FP"]
+                    # keep it true to what the model predicted
+                    filtered_count[occurence] = count
+            return filtered_count
+
+        filtered_occurence_dict: dict[str, Counter[str]] = {}
+        for attr, occurence_count in occurence_dict.items():
+            filtered_occurence_count = compare(occurence_count, cf_dict[attr])
+            if len(filtered_occurence_count) > 0:
+                filtered_occurence_dict[attr] = filtered_occurence_count
+        return filtered_occurence_dict
+
     if json_dict == xml_dict:
-        if not any(xml_hallucinations.values()) and not any(
-            json_hallucinations.values()
-        ):
+        if parse_has_no_total_hallucinations(
+            xml_cf_dict
+        ) and parse_has_no_total_hallucinations(json_cf_dict):
             logger.info("JSON and XML agree and are entirely non-hallucinatory")
             return get_spans_from_xml(
                 row, {"instruction", "condition", "dosage", "frequency"}
             )
         else:
-            assert (
-                xml_hallucinations == json_hallucinations
-            ), f"Disagreement at hallucination level but not text level for JSON {json_dict} and XML {xml_dict}"
-            if all(xml_hallucinations.values()):
+            assert xml_cf_dict == json_cf_dict, (
+                f"Disagreement at hallucination level but not text level for JSON {json_dict} and XML {xml_dict}"
+            )
+            if all(xml_cf_dict.values()):
                 logger.info(
                     "JSON and XML agree and are both entirely hallucinatory - dumping instance"
                 )
@@ -278,19 +361,19 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
                 )
                 return get_spans_from_json(
                     row,
-                    {
-                        k: v
-                        for k, v in json_dict.items()
-                        if not json_hallucinations.get(k, False)
-                    },
+                    filter_hallucinatory(
+                        occurence_dict=json_dict, cf_dict=json_cf_dict
+                    ),
                 )
     else:
-        if not any(xml_hallucinations.values()):
+        if parse_has_no_total_hallucinations(xml_cf_dict):
             logger.info("JSON and XML disagree - XML is non-hallucinatory")
             return get_spans_from_xml(
                 row, {"instruction", "condition", "dosage", "frequency"}
             )
-        elif all(xml_hallucinations.values()) and all(json_hallucinations.values()):
+        elif parse_is_all_total_hallucinations(
+            xml_cf_dict
+        ) and parse_is_all_total_hallucinations(json_cf_dict):
             logger.info(
                 "JSON and XML disagree and are both entirely hallucinatory - dumping instance"
             )
@@ -301,11 +384,7 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
             )
             return get_spans_from_json(
                 row,
-                {
-                    k: v
-                    for k, v in json_dict.items()
-                    if not json_hallucinations.get(k, False)
-                },
+                filter_hallucinatory(occurence_dict=json_dict, cf_dict=json_cf_dict),
             )
 
 
@@ -350,7 +429,8 @@ def get_spans_from_xml(row: pd.Series, attrs: set[str]) -> list[MedicationAttrib
 
 
 def get_spans_from_json(
-    row: pd.Series, json_dict: dict[str, str]
+    row: pd.Series,
+    json_dict: dict[str, Counter[str]],
 ) -> list[MedicationAttribute]:
     # some possible options,
     # we can find all the match spans using re.finditer,
@@ -387,7 +467,7 @@ def anafora_process(
     input_tsv: str, output_dir: str, get_differences: bool = False
 ) -> None:
     raw_frame = pd.read_csv(input_tsv, sep="\t")
-    raw_frame["result"] = raw_frame.apply(output_to_result, axis=1)
+    # raw_frame["result"] = raw_frame.apply(output_to_result, axis=1)
     # filtered_frame = raw_frame.loc[raw_frame["result"].str.lower() != "none"]
     # to_anafora_files(filtered_frame, output_dir)
     to_anafora_files(raw_frame, output_dir, get_differences)
