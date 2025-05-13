@@ -5,6 +5,7 @@ import os
 import pathlib
 import re
 from ast import literal_eval
+from itertools import chain
 from functools import partial
 from operator import itemgetter
 
@@ -141,17 +142,22 @@ def process(excel_input: str, output_dir: str, filter_hallucinations: bool) -> N
                         field_is_hallucinatory,
                         ground_truth_column="window_text",
                         field=attr,
-                    )
+                    ),
+                    axis=1,
                 )
-                df.loc[df[f"{attr}_hallucinatory"], attr] = ""
+                # df.loc[df[f"{attr}_hallucinatory"], attr] = ""
     df = df.loc[(df["instruction"] != "") | (df["condition"] != "")]
 
     def clean_section_id(section_str: str) -> str:
         return " ".join(section_str.split("_")[1:]).title()
 
+    non_med_attrs = set(attrs) - {"medication"}
+    attr_hallucinations = {f"{attr}_hallucinatory" for attr in non_med_attrs}
     df["section_identifier"] = df["section_identifier"].map(clean_section_id)
+    # df.drop(columns=[f"{attr}_hallucinatory" for attr in set(attrs) - {"medication"}], inplace=True)
     for column_name in df.columns:
-        df[column_name] = df[column_name].map(serialize_whitespace)
+        if not column_name.endswith("hallucinatory"):
+            df[column_name] = df[column_name].map(serialize_whitespace)
     reference_df = df[
         ["filename", "section_identifier", *attrs, "window_text", "JSON", "XML"]
     ]
@@ -161,7 +167,17 @@ def process(excel_input: str, output_dir: str, filter_hallucinations: bool) -> N
     #     ["filename", "section_identifier", *attrs, "window_text", "JSON", "XML"]
     # ]
     reference_df = df[
-        ["filename", "section_identifier", *attrs, "window_text", "JSON", "XML"]
+        [
+            "filename",
+            "section_identifier",
+            "medication",
+            *chain.from_iterable(
+                zip(sorted(non_med_attrs), sorted(attr_hallucinations))
+            ),
+            "window_text",
+            "JSON",
+            "XML",
+        ]
     ]
     # reference_df.to_excel(reference_path, index=False)
     # summarized_df.to_excel(summarized_path, index=False)
