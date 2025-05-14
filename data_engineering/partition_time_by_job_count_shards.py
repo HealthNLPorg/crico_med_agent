@@ -190,10 +190,11 @@ def get_sbatch_script_contents(
     shard_id: int,
     estimated_hours: int,
 ) -> str:
+        # "#SBATCH --partition=bch-gpu-pe             # queue to be used\n"
     return (
         "#!/bin/bash\n"
         "#SBATCH --account=chip\n"
-        "#SBATCH --partition=bch-gpu-pe             # queue to be used\n"
+        "#SBATCH --partition=bch-gpu             # queue to be used\n"
         f"#SBATCH --time={estimated_hours}:00:00             # Running time (in hours-minutes-seconds)\n"
         f"#SBATCH --job-name=window_crico_shard_{shard_id}           # Job name\n"
         "#SBATCH --mail-user=eli.goldner@childrens.harvard.edu      # Email address to send the job status\n"
