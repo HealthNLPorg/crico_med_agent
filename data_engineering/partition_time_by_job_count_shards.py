@@ -131,11 +131,13 @@ def process(
                     buffered_hours_for_instance = get_buffered_hours_for_instances(
                         len(df), seconds_per_instance
                     )
-                    logger.info(f"Estimated (worst case) time for shard {shard_id} is {buffered_hours_for_instance} hours")
+                    logger.info(
+                        f"Estimated (worst case) time for shard {shard_id} is {buffered_hours_for_instance} hours"
+                    )
                     sbatch_script.write(
                         get_frame_sbatch(
                             shard_id,
-                            buffered_hours_for_instances,
+                            buffered_hours_for_instance,
                         )
                     )
                 shard_data.clear()
