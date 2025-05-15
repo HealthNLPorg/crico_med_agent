@@ -128,12 +128,14 @@ def process(
                     mode="w",
                     encoding="utf-8",
                 ) as sbatch_script:
+                    buffered_hours_for_instance = get_buffered_hours_for_instances(
+                        len(df), seconds_per_instance
+                    )
+                    logger.info(f"Estimated (worst case) time for shard {shard_id} is {buffered_hours_for_instance} hours")
                     sbatch_script.write(
                         get_frame_sbatch(
                             shard_id,
-                            get_buffered_hours_for_instances(
-                                len(df), seconds_per_instance
-                            ),
+                            buffered_hours_for_instances,
                         )
                     )
                 shard_data.clear()
@@ -190,7 +192,7 @@ def get_sbatch_script_contents(
     shard_id: int,
     estimated_hours: int,
 ) -> str:
-        # "#SBATCH --partition=bch-gpu-pe             # queue to be used\n"
+    # "#SBATCH --partition=bch-gpu-pe             # queue to be used\n"
     return (
         "#!/bin/bash\n"
         "#SBATCH --account=chip\n"
