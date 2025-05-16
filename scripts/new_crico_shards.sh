@@ -1,10 +1,26 @@
+AGENT=agent_2
+E3_HOME=ch231037@e3-login.tch.harvard.edu:/home/ch231037/
+PREVIOUS_INITIAL=-1
+PREVIOUS_JOB_COUNT=-1
+PREVIOUS_HOURS_PER_JOB=-1
+PREVIOUS_SECONDS_PER_INSTANCE=-1
+PREVIOUS_REMAINDER_FN=remainder.tsv
+PREVIOUS_REMAINDER_PATH=/home/etg/r/Eli/CRICO_106k/${AGENT}/${PREVIOUS_INITIAL}_${PREVIOUS_JOB_COUNT}_${PREVIOUS_HOURS_PER_JOB}_${PREVIOUS_REMAINDER_FN}
+CURRENT_INITIAL=-1
+CURRENT_JOB_COUNT=-1
+CURRENT_HOURS_PER_JOB=-1
+CURRENT_SECONDS_PER_INSTANCE=-1
+CURRENT_OUTPUT_PATH=/home/etg/${CURRENT_INITIAL}_${CURRENT_JOB_COUNT}_${CURRENT_HOURS_PER_JOB}_${AGENT}
+CURRENT_REMAINDER_FN=remainder.tsv
+CURRENT_REMAINDER_SRC_PATH=${CURRENT_OUTPUT_PATH}/${CURRENT_REMAINDER_FN}
+CURRENT_REMAINDER_DEST_PATH=/home/etg/r/Eli/CRICO_106k/${AGENT}/${CURRENT_INITIAL}_${CURRENT_JOB_COUNT}_${CURRENT_HOURS_PER_JOB}_${CURRENT_REMAINDER_FN}
 python /home/etg/Repos/CRICO/data_engineering/partition_time_by_job_count_shards.py \
-       --input_tsv /home/etg/r/Eli/CRICO_106k/agent_2/242_16_28_remainder.tsv \
-       --output_dir /home/etg/258_16_24_agent_2/ \
-       --initial 258 \
-       --job_count 16 \
-       --hours_per_job 24 \
-       --seconds_per_instance 35;
-sudo rsync -ah --progress  /home/etg/258_16_24_agent_2/remainder.tsv /home/etg/r/Eli/CRICO_106k/agent_2/258_16_24_remainder.tsv
-rm /home/etg/258_16_24_agent_2/remainder.tsv
-scp -r /home/etg/258_16_24_agent_2 ch231037@e3-login.tch.harvard.edu:/home/ch231037/
+       --input_tsv ${PREVIOUS_REMAINDER_PATH} \
+       --output_dir  \
+       --initial ${CURRENT_INITIAL} \
+       --job_count ${CURRENT_JOB_COUNT} \
+       --hours_per_job ${CURRENT_HOURS_PER_JOB} \
+       --seconds_per_instance ${CURRENT_SECONDS_PER_INSTANCE};
+sudo rsync -ah --progress ${CURRENT_REMAINDER_SRC_PATH}  ${CURRENT_REMAINDER_DEST_PATH}
+rm ${CURRENT_REMAINDER_SRC_PATH}
+scp -r ${CURRENT_OUTPATH_PATH} ${E3_HOME}
