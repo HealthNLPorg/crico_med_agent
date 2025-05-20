@@ -554,13 +554,62 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
 
         return [
             match_to_window(med_match)
-            for med_match in re.finditer(meds_regex, normalized_section)
-        ]
+            # TODO fix this issue with the parens
+            # ['<cn><cn>Mac,IVIG (not found, however, IVIg was found in a prior note)']
+            # {'ivig was found in a prior note)', 'however', 'ivig (not found', 'mac'}
+            # Traceback (most recent call last):
+            # File "/home/etg/Repos/CRICO/inference/interpretation.py", line 619, in <module>
+            #     main()
+            #     ~~~~^^
+            # File "/home/etg/Repos/CRICO/inference/interpretation.py", line 615, in main
+            #     windows_process(args.input_tsv, args.output_dir)
+            #     ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            # File "/home/etg/Repos/CRICO/inference/interpretation.py", line 602, in windows_process
+            #     expanded_windows_frame = build_frame_with_med_windows(raw_frame)
+            # File "/home/etg/Repos/CRICO/inference/interpretation.py", line 577, in build_frame_with_med_windows
+            #     raw_frame["raw_windows"] = raw_frame.apply(row_to_window_list, axis=1)
+            #                             ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            # File "/home/etg/miniconda3/envs/313/lib/python3.13/site-packages/pandas/core/frame.py", line 10374, in apply
+            #     return op.apply().__finalize__(self, method="apply")
+            #         ~~~~~~~~^^
+            # File "/home/etg/miniconda3/envs/313/lib/python3.13/site-packages/pandas/core/apply.py", line 916, in apply
+            #     return self.apply_standard()
+            #         ~~~~~~~~~~~~~~~~~~~^^
+            # File "/home/etg/miniconda3/envs/313/lib/python3.13/site-packages/pandas/core/apply.py", line 1063, in apply_standard
+            #     results, res_index = self.apply_series_generator()
+            #                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+            # File "/home/etg/miniconda3/envs/313/lib/python3.13/site-packages/pandas/core/apply.py", line 1081, in apply_series_generator
+            #     results[i] = self.func(v, *self.args, **self.kwargs)
+            #                 ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            # File "/home/etg/Repos/CRICO/inference/interpretation.py", line 575, in row_to_window_list
+            #     return build_med_windows(str(row.section_body), meds)
+            # File "/home/etg/Repos/CRICO/inference/interpretation.py", line 557, in build_med_windows
+            #     for med_match in re.finditer(meds_regex, normalized_section)
+            #                     ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            # File "/home/etg/miniconda3/envs/313/lib/python3.13/re/__init__.py", line 285, in finditer
+            #     return _compile(pattern, flags).finditer(string)
+            #         ~~~~~~~~^^^^^^^^^^^^^^^^
+            # File "/home/etg/miniconda3/envs/313/lib/python3.13/re/__init__.py", line 350, in _compile
+            #     p = _compiler.compile(pattern, flags)
+            # File "/home/etg/miniconda3/envs/313/lib/python3.13/re/_compiler.py", line 743, in compile
+            #     p = _parser.parse(p, flags)
+            # File "/home/etg/miniconda3/envs/313/lib/python3.13/re/_parser.py", line 985, in parse
+            #     raise source.error("unbalanced parenthesis")
+            # re.PatternError: unbalanced parenthesis at position 30
+                        for med_match in re.finditer(meds_regex, normalized_section)
+                    ]
 
     def row_to_window_list(
         row: pd.Series,
     ) -> list[tuple[tuple[int, int], tuple[int, int], str]]:
         meds = serialized_output_to_unique_meds(literal_eval(row.serialized_output))
+        print(row.serialized_output)
+        print(meds)
+        # TODO  python interpretation.py --input_tsv ~/agent1_window_debugging/empty_meds.tsv --output_dir /dev/null --mode windows
+        # results tend to contain an unecessary space e.g
+        # ['<cn><cn>cholestyramine,erythromycin,Questran,Pediasure,TPN,CVLeither oral pain medications (not specified),']
+        # {'', 'pediasure', 'questran', 'erythromycin', 'cholestyramine', 'tpn', 'cvleither oral pain medications (not specified)'}
+        # see if this has something to do with what's happening
         if (
             len(meds) == 0
             or (isinstance(row.section_body, str) and len(row.section_body) == 0)
