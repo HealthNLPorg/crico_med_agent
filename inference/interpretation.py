@@ -235,6 +235,8 @@ def select_xml(row: pd.Series) -> str:
     for xml_str in row["XML"]:
         if (
             get_medication_text(xml_str) is not None
+            # mypy doesn't like this but the first clause will short circuit
+            # if the result isn't a string
             and get_medication_text(xml_str).strip().lower()
             == row["medication"].strip().lower()
         ):
@@ -277,10 +279,7 @@ def get_cf_dict(
         instance_to_cfm = {}
         for instance, prediction_count in disovered_instances.items():
             gold_count = sum(
-                1
-                for _ in re.findall(
-                    misc_character_escape(instance), misc_character_escape(ground_truth)
-                )
+                1 for _ in re.findall(re.escape(instance), re.escape(ground_truth))
             )
             # rough justice since not span level but
             if gold_count == prediction_count:
@@ -368,9 +367,9 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
                 row, {"instruction", "condition", "dosage", "frequency"}
             )
         else:
-            assert xml_cf_dict == json_cf_dict, (
-                f"Disagreement at hallucination level but not text level for JSON {json_dict} and XML {xml_dict}"
-            )
+            assert (
+                xml_cf_dict == json_cf_dict
+            ), f"Disagreement at hallucination level but not text level for JSON {json_dict} and XML {xml_dict}"
             if all(xml_cf_dict.values()):
                 logger.info(
                     "JSON and XML agree and are both entirely hallucinatory - dumping instance"
@@ -497,19 +496,10 @@ def anafora_process(
     to_anafora_files(raw_frame, output_dir, get_differences)
 
 
-def misc_character_escape(raw: str) -> str:
-    result = re.sub("\(", "\\(", raw)
-    result = re.sub("\)", "\\)", raw)
-    result = re.sub("\[", "\\[", raw)
-    result = re.sub("\]", "\\]", raw)
-    result = re.sub("\+", "\\+", raw)
-    return result
-
-
 def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     def serialized_output_to_unique_meds(output: list[str]) -> set[str]:
         raw_output = re.sub("<c[rtnf]>", "", output[0])
-        normalized = misc_character_escape(raw_output).lower()
+        normalized = re.escape(raw_output).lower()
         bad_terms = {
             "begin_of_text",
             "end_of_text",
@@ -596,8 +586,8 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
             # File "/home/etg/miniconda3/envs/313/lib/python3.13/re/_parser.py", line 985, in parse
             #     raise source.error("unbalanced parenthesis")
             # re.PatternError: unbalanced parenthesis at position 30
-                        for med_match in re.finditer(meds_regex, normalized_section)
-                    ]
+            for med_match in re.finditer(meds_regex, normalized_section)
+        ]
 
     def row_to_window_list(
         row: pd.Series,
