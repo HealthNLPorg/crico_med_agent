@@ -523,7 +523,7 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     def build_med_windows(
         section_body: str, meds: set[str]
     ) -> list[tuple[tuple[int, int], tuple[int, int], str]]:
-        meds_regex = "|".join(meds)
+        meds_regex = re.escape("|".join(meds))
         normalized_section = section_body.lower()
         token_index_ls = [token.span() for token in re.finditer(r"\S+", section_body)]
 
@@ -593,8 +593,8 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         row: pd.Series,
     ) -> list[tuple[tuple[int, int], tuple[int, int], str]]:
         meds = serialized_output_to_unique_meds(literal_eval(row.serialized_output))
-        print(row.serialized_output)
-        print(meds)
+        # print(row.serialized_output)
+        # print(meds)
         # TODO  python interpretation.py --input_tsv ~/agent1_window_debugging/empty_meds.tsv --output_dir /dev/null --mode windows
         # results tend to contain an unecessary space e.g
         # ['<cn><cn>cholestyramine,erythromycin,Questran,Pediasure,TPN,CVLeither oral pain medications (not specified),']
@@ -624,11 +624,17 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     def get_window_text(row: pd.Series) -> str:
         return row.raw_windows[2]
 
-    full_frame["medication_local_offsets"] = full_frame.apply(
-        get_window_med_local_offsets, axis=1
+        # get_window_med_local_offsets, axis=1
+
+    full_frame["medication_local_offsets"] = full_frame["raw_windows"].map(
+        itemgetter(0)
     )
-    full_frame["window_cas_offsets"] = full_frame.apply(get_window_cas_offsets, axis=1)
-    full_frame["window_text"] = full_frame.apply(get_window_text, axis=1)
+    # full_frame["window_cas_offsets"] = full_frame.apply(get_window_cas_offsets, axis=1)
+    # full_frame["window_text"] = full_frame.apply(get_window_text, axis=1)
+    full_frame["window_cas_offsets"] = full_frame["raw_windows"].map(itemgetter(1))
+
+    full_frame["window_text"] = full_frame["raw_windows"].map(itemgetter(2))
+
     full_frame.drop("raw_windows", axis=1, inplace=True)
     full_frame.reset_index(drop=True)
     return full_frame
