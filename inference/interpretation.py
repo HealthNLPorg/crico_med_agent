@@ -71,7 +71,7 @@ class ConfusionMatrix(Counter):
         return self.totals["FP"] > 0 and self.totals["TP"] == 0
 
 
-def get_medication_annotation(row: pd.Series) -> Medication:
+def get_medication_anafora_annotation(row: pd.Series) -> Medication:
     # inappropriately named because I SCREWED UP
     # YES THAT'S RIGHT I SCREWED UP CAN YOU BELIEVE IT???????????
     cas_level_span = literal_eval(row["medication_local_offsets"])
@@ -103,7 +103,7 @@ def to_anafora_file(
 ) -> None:
     fn_anafora_document = AnaforaDocument(filename=base_fn)
     medications: list[Medication] = fn_frame.apply(
-        get_medication_annotation, axis=1
+        get_medication_anafora_annotation, axis=1
     ).to_list()
 
     def contains_tags(tag_core: str, target: str) -> bool:
@@ -367,9 +367,9 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
                 row, {"instruction", "condition", "dosage", "frequency"}
             )
         else:
-            assert (
-                xml_cf_dict == json_cf_dict
-            ), f"Disagreement at hallucination level but not text level for JSON {json_dict} and XML {xml_dict}"
+            assert xml_cf_dict == json_cf_dict, (
+                f"Disagreement at hallucination level but not text level for JSON {json_dict} and XML {xml_dict}"
+            )
             if all(xml_cf_dict.values()):
                 logger.info(
                     "JSON and XML agree and are both entirely hallucinatory - dumping instance"
@@ -615,22 +615,10 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     raw_frame = raw_frame[raw_frame["raw_windows"].astype(bool)]
     full_frame = raw_frame.explode("raw_windows")
 
-    def get_window_med_local_offsets(row: pd.Series) -> tuple[int, int]:
-        return row.raw_windows[0]
-
-    def get_window_cas_offsets(row: pd.Series) -> tuple[int, int]:
-        return row.raw_windows[1]
-
-    def get_window_text(row: pd.Series) -> str:
-        return row.raw_windows[2]
-
-        # get_window_med_local_offsets, axis=1
-
     full_frame["medication_local_offsets"] = full_frame["raw_windows"].map(
         itemgetter(0)
     )
-    # full_frame["window_cas_offsets"] = full_frame.apply(get_window_cas_offsets, axis=1)
-    # full_frame["window_text"] = full_frame.apply(get_window_text, axis=1)
+
     full_frame["window_cas_offsets"] = full_frame["raw_windows"].map(itemgetter(1))
 
     full_frame["window_text"] = full_frame["raw_windows"].map(itemgetter(2))
