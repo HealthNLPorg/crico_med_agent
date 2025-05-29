@@ -5,7 +5,7 @@ import json
 import logging
 from ast import literal_eval
 from itertools import chain, islice
-from typing import cast
+from typing import cast, Any
 from collections.abc import Iterable
 from collections import Counter
 from operator import itemgetter
@@ -512,7 +512,7 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
             bad_term in normalized for bad_term in bad_terms
         ):
             return set()
-        return {med.lower().strip() for med in raw_output.split(",")}
+        return {med.lower().strip() for med in raw_output.split(",") if len(med.strip()) > 0}
 
     def get_central_index(med_begin: int, token_index_ls: list[tuple[int, int]]) -> int:
         def closest(token_ord: int) -> int:
@@ -523,7 +523,7 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     def build_med_windows(
         section_body: str, meds: set[str]
     ) -> list[tuple[tuple[int, int], tuple[int, int], str]]:
-        meds_regex = re.escape("|".join(meds))
+        meds_regex = "|".join(map(re.escape, meds))
         normalized_section = section_body.lower()
         token_index_ls = [token.span() for token in re.finditer(r"\S+", section_body)]
 
@@ -544,48 +544,6 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
 
         return [
             match_to_window(med_match)
-            # TODO fix this issue with the parens
-            # ['<cn><cn>Mac,IVIG (not found, however, IVIg was found in a prior note)']
-            # {'ivig was found in a prior note)', 'however', 'ivig (not found', 'mac'}
-            # Traceback (most recent call last):
-            # File "/home/etg/Repos/CRICO/inference/interpretation.py", line 619, in <module>
-            #     main()
-            #     ~~~~^^
-            # File "/home/etg/Repos/CRICO/inference/interpretation.py", line 615, in main
-            #     windows_process(args.input_tsv, args.output_dir)
-            #     ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-            # File "/home/etg/Repos/CRICO/inference/interpretation.py", line 602, in windows_process
-            #     expanded_windows_frame = build_frame_with_med_windows(raw_frame)
-            # File "/home/etg/Repos/CRICO/inference/interpretation.py", line 577, in build_frame_with_med_windows
-            #     raw_frame["raw_windows"] = raw_frame.apply(row_to_window_list, axis=1)
-            #                             ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-            # File "/home/etg/miniconda3/envs/313/lib/python3.13/site-packages/pandas/core/frame.py", line 10374, in apply
-            #     return op.apply().__finalize__(self, method="apply")
-            #         ~~~~~~~~^^
-            # File "/home/etg/miniconda3/envs/313/lib/python3.13/site-packages/pandas/core/apply.py", line 916, in apply
-            #     return self.apply_standard()
-            #         ~~~~~~~~~~~~~~~~~~~^^
-            # File "/home/etg/miniconda3/envs/313/lib/python3.13/site-packages/pandas/core/apply.py", line 1063, in apply_standard
-            #     results, res_index = self.apply_series_generator()
-            #                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
-            # File "/home/etg/miniconda3/envs/313/lib/python3.13/site-packages/pandas/core/apply.py", line 1081, in apply_series_generator
-            #     results[i] = self.func(v, *self.args, **self.kwargs)
-            #                 ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-            # File "/home/etg/Repos/CRICO/inference/interpretation.py", line 575, in row_to_window_list
-            #     return build_med_windows(str(row.section_body), meds)
-            # File "/home/etg/Repos/CRICO/inference/interpretation.py", line 557, in build_med_windows
-            #     for med_match in re.finditer(meds_regex, normalized_section)
-            #                     ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-            # File "/home/etg/miniconda3/envs/313/lib/python3.13/re/__init__.py", line 285, in finditer
-            #     return _compile(pattern, flags).finditer(string)
-            #         ~~~~~~~~^^^^^^^^^^^^^^^^
-            # File "/home/etg/miniconda3/envs/313/lib/python3.13/re/__init__.py", line 350, in _compile
-            #     p = _compiler.compile(pattern, flags)
-            # File "/home/etg/miniconda3/envs/313/lib/python3.13/re/_compiler.py", line 743, in compile
-            #     p = _parser.parse(p, flags)
-            # File "/home/etg/miniconda3/envs/313/lib/python3.13/re/_parser.py", line 985, in parse
-            #     raise source.error("unbalanced parenthesis")
-            # re.PatternError: unbalanced parenthesis at position 30
             for med_match in re.finditer(meds_regex, normalized_section)
         ]
 
@@ -593,13 +551,6 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         row: pd.Series,
     ) -> list[tuple[tuple[int, int], tuple[int, int], str]]:
         meds = serialized_output_to_unique_meds(literal_eval(row.serialized_output))
-        # print(row.serialized_output)
-        # print(meds)
-        # TODO  python interpretation.py --input_tsv ~/agent1_window_debugging/empty_meds.tsv --output_dir /dev/null --mode windows
-        # results tend to contain an unecessary space e.g
-        # ['<cn><cn>cholestyramine,erythromycin,Questran,Pediasure,TPN,CVLeither oral pain medications (not specified),']
-        # {'', 'pediasure', 'questran', 'erythromycin', 'cholestyramine', 'tpn', 'cvleither oral pain medications (not specified)'}
-        # see if this has something to do with what's happening
         if (
             len(meds) == 0
             or (isinstance(row.section_body, str) and len(row.section_body) == 0)
@@ -612,7 +563,10 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         return build_med_windows(str(row.section_body), meds)
 
     raw_frame["raw_windows"] = raw_frame.apply(row_to_window_list, axis=1)
-    raw_frame = raw_frame[raw_frame["raw_windows"].astype(bool)]
+    def non_empty(s :list[Any]) -> bool:
+        return len(s) > 0
+    raw_frame[~raw_frame["raw_windows"].map(non_empty)][["serialized_output", "section_body"]].to_csv("/home/etg/Repos/CRICO/testing_escape/problem_children.tsv", sep="\t")
+    raw_frame = raw_frame[raw_frame["raw_windows"].map(non_empty)]
     full_frame = raw_frame.explode("raw_windows")
 
     full_frame["medication_local_offsets"] = full_frame["raw_windows"].map(
