@@ -171,8 +171,12 @@ def process(excel_input: str, output_dir: str, filter_hallucinations: bool) -> N
             "filename",
             "section_identifier",
             "medication",
-            *chain.from_iterable(
-                zip(sorted(non_med_attrs), sorted(attr_hallucinations))
+            *(
+                chain.from_iterable(
+                    zip(sorted(non_med_attrs), sorted(attr_hallucinations))
+                )
+                if filter_hallucinations
+                else sorted(non_med_attrs)
             ),
             "window_text",
             "JSON",
