@@ -2,6 +2,7 @@ import argparse
 import gc
 import os
 from typing import Iterable
+from itertools import chain
 
 import pandas as pd
 
@@ -45,20 +46,20 @@ def __tsv_to_section_hashes(target_tsv: str) -> set[str]:
     )
 
 
-def get_relevant_paths(remainder_folders: str) -> Iterable[str]:
-    for input_folder in os.listdir(remainder_folders):
-        for root, dirs, files in os.walk(input_folder):
-            if "processed" in root.lower():
-                for fn in files:
-                    if fn.lower().endswith("tsv"):
-                        yield os.path.join(remainder_folders, input_folder, fn)
+def __get_relevant_paths(input_folder: str) -> Iterable[str]:
+    for root, dirs, files in input_folder:
+        if "processed" in root.lower():
+            for fn in files:
+                if fn.lower().endswith("tsv"):
+                    yield os.path.join(input_folder, fn)
 
 
-def __build_remainder_frame(
-    remainder_shards_bundled: str,
-    empty_meds_preimage_tsv: str,
+def __build_frame(
+    shard_bundle_dir: list[str],
+    # empty_meds_preimage_tsv: str,
 ) -> pd.DataFrame:
-    problem_sections = __tsv_to_section_hashes(empty_meds_preimage_tsv)
+    gc.enable()
+    gc.collect()
 
     def __is_not_problem_section(row: pd.Series) -> bool:
         return (
@@ -68,21 +69,25 @@ def __build_remainder_frame(
             not in problem_sections
         )
 
-    gc.enable()
-
-    def get_id_number(fn: str) -> int:
-        return int(fn.split("_")[-1])
+    # def get_id_number(fn: str) -> int:
+    #     return int(fn.split("_")[-1])
 
     def load_frame(frame_fn: str) -> pd.DataFrame:
         return pd.read_csv(frame_fn, sep="\t")
 
     full_frame = pd.concat(
-        map(load_frame, get_relevant_paths(remainder_shards_bundled))
+        chain.from_iterable(
+            map(load_frame, __get_relevant_paths(input_folder=shard_dir))
+            for shard_dir in shard_bundle_dir
+            if "shard" in shard_dir
+        )
     )
     gc.collect()
-    full_frame["int_study_id"] = full_frame["filename"].map(get_id_number)
-    full_frame = full_frame.sort_values(by="int_study_id")
-    pass
+    return full_frame.loc[full_frame.apply(__is_not_problem_section, axis=1)]
+    # filtered_frame = full_frame.loc[full_frame.apply(__is_not_problem_section, axis=1)]
+    # filtered_frame["int_study_id"] = filtered_frame["filename"].map(get_id_number)
+    # filtered_frame = filtered_frame.sort_values(by="int_study_id")
+    # return filtered_frame
 
 
 def __process(
@@ -91,7 +96,26 @@ def __process(
     empty_meds_preimage_tsv: str,
     output_dir: str,
 ) -> None:
-    pass
+    gc.enable()
+
+    def get_id_number(fn: str) -> int:
+        return int(fn.split("_")[-1])
+
+    raw_remainder_frame = __build_frame(
+        [
+            os.path.join(remainder_shards_bundled, dirname)
+            for dirname in os.listdir(remainder_shards_bundled)
+            if "agent_2" in dirname
+        ],
+        # empty_meds_preimage_tsv,
+    )
+
+    problem_sections = __tsv_to_section_hashes(empty_meds_preimage_tsv)
+    fixed_shard_frame = __build_frame(
+        [
+            shard_folder_with_fixed,
+        ]
+    )
 
 
 def main() -> None:
