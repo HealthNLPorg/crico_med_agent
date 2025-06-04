@@ -565,7 +565,7 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     raw_frame["raw_windows"] = raw_frame.apply(row_to_window_list, axis=1)
     def non_empty(s :list[Any]) -> bool:
         return len(s) > 0
-    raw_frame[~raw_frame["raw_windows"].map(non_empty)][["serialized_output", "section_body"]].to_csv("/home/etg/Repos/CRICO/testing_escape/problem_children.tsv", sep="\t")
+    # raw_frame[~raw_frame["raw_windows"].map(non_empty)][["serialized_output", "section_body"]].to_csv("/home/etg/Repos/CRICO/testing_escape/problem_children.tsv", sep="\t")
     raw_frame = raw_frame[raw_frame["raw_windows"].map(non_empty)]
     full_frame = raw_frame.explode("raw_windows")
 

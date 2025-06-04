@@ -2,7 +2,7 @@ import argparse
 import gc
 import logging
 import os
-from collections import deque, defaultdict
+from collections import deque
 from itertools import chain
 from typing import Deque, Iterable
 
@@ -59,8 +59,6 @@ def build_and_write_frame(frame_paths: Iterable[str], output_dir: str) -> None:
 
 
 def build_and_write_study_ids(study_id_paths: Iterable[str], output_dir: str) -> None:
-    id_to_files = defaultdict(deque)
-
     def load_ids(study_id_path: str) -> Iterable[int]:
         with open(study_id_path, mode="r", encoding="utf-8") as f:
             return map(int, f.readlines())

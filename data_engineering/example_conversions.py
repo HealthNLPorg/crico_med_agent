@@ -1,3 +1,6 @@
+import re
+
+
 def parse_input_output(examples_file_path: str) -> list[tuple[str, str]]:
     def parse_example(raw_example: str) -> tuple[str, str]:
         result = tuple(
