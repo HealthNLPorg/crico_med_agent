@@ -135,14 +135,15 @@ def process(excel_input: str, output_dir: str, filter_hallucinations: bool) -> N
     ]
     for attr in attrs:
         if attr != "medication":
+            check_if_hallucinatory = partial(
+                field_is_hallucinatory,
+                ground_truth_column="window_text",
+                field=attr,
+            )
             df[attr] = df["JSON"].map(partial(parse_key_from_json, attr))
             if filter_hallucinations:
                 df[f"{attr}_hallucinatory"] = df.apply(
-                    partial(
-                        field_is_hallucinatory,
-                        ground_truth_column="window_text",
-                        field=attr,
-                    ),
+                    check_if_hallucinatory,
                     axis=1,
                 )
                 # df.loc[df[f"{attr}_hallucinatory"], attr] = ""
