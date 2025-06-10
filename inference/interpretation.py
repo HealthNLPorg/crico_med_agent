@@ -367,9 +367,9 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
                 row, {"instruction", "condition", "dosage", "frequency"}
             )
         else:
-            assert xml_cf_dict == json_cf_dict, (
-                f"Disagreement at hallucination level but not text level for JSON {json_dict} and XML {xml_dict}"
-            )
+            assert (
+                xml_cf_dict == json_cf_dict
+            ), f"Disagreement at hallucination level but not text level for JSON {json_dict} and XML {xml_dict}"
             if all(xml_cf_dict.values()):
                 logger.info(
                     "JSON and XML agree and are both entirely hallucinatory - dumping instance"
@@ -512,7 +512,9 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
             bad_term in normalized for bad_term in bad_terms
         ):
             return set()
-        return {med.lower().strip() for med in raw_output.split(",") if len(med.strip()) > 0}
+        return {
+            med.lower().strip() for med in raw_output.split(",") if len(med.strip()) > 0
+        }
 
     def get_central_index(med_begin: int, token_index_ls: list[tuple[int, int]]) -> int:
         def closest(token_ord: int) -> int:
@@ -563,8 +565,10 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         return build_med_windows(str(row.section_body), meds)
 
     raw_frame["raw_windows"] = raw_frame.apply(row_to_window_list, axis=1)
-    def non_empty(s :list[Any]) -> bool:
+
+    def non_empty(s: list[Any]) -> bool:
         return len(s) > 0
+
     # raw_frame[~raw_frame["raw_windows"].map(non_empty)][["serialized_output", "section_body"]].to_csv("/home/etg/Repos/CRICO/testing_escape/problem_children.tsv", sep="\t")
     raw_frame = raw_frame[raw_frame["raw_windows"].map(non_empty)]
     full_frame = raw_frame.explode("raw_windows")
