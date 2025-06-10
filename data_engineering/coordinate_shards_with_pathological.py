@@ -22,7 +22,7 @@ def __section_hash(
 
 
 def __get_relevant_paths(input_folder: str) -> Iterable[str]:
-    for root, dirs, files in input_folder:
+    for root, dirs, files in os.walk(input_folder):
         if "processed" in root.lower():
             for fn in files:
                 if fn.lower().endswith("tsv"):
@@ -54,7 +54,7 @@ def __process(
 ) -> None:
     gc.enable()
 
-    raw_remainder_frame = __build_frame(
+    original_shards_with_pathological = __build_frame(
         [
             os.path.join(remainder_shards_bundled, dirname)
             for dirname in os.listdir(remainder_shards_bundled)
@@ -77,13 +77,17 @@ def __process(
             shard_folder_with_fixed,
         ]
     )
-    sections_with_fixed = set(
+    problem_sections_in_fixed_frames = set(
         fixed_shard_frame.apply(__local_section_hash, axis=1).to_list()
     )
 
-    assert problem_sections.issubset(sections_with_fixed)
+    problem_sections_in_original_frames = set(
+        original_shards_with_pathological.apply(__local_section_hash, axis=1).to_list()
+    )
+    assert problem_sections.issubset(problem_sections_in_fixed_frames)
+    assert problem_sections.issubset(problem_sections_in_original_frames)
 
-    def get_id_number(fn: str) -> int:
+    def __get_id_number(fn: str) -> int:
         return int(fn.split("_")[-1])
 
     def __is_not_problem_section(row: pd.Series) -> bool:
@@ -94,12 +98,16 @@ def __process(
             not in problem_sections
         )
 
-    filtered_remainder_frame = raw_remainder_frame.loc[
-        raw_remainder_frame.apply(__is_not_problem_section, axis=1)
+    # filtered_remainder_frame = original_shards_with_pathological.loc[
+    #     original_shards_with_pathological.apply(__is_not_problem_section, axis=1)
+    # ]
+    # full_frame = pd.concat((filtered_remainder_frame, fixed_shard_frame))
+    filtered_fixed_frame = fixed_shard_frame.loc[
+        fixed_shard_frame.apply(__is_not_problem_section, axis=1)
     ]
-    full_frame = pd.concat((filtered_remainder_frame, fixed_shard_frame))
+    full_frame = pd.concat((original_shards_with_pathological, filtered_fixed_frame))
     gc.collect()
-    full_frame["int_study_id"] = full_frame["filename"].map(get_id_number)
+    full_frame["int_study_id"] = full_frame["filename"].map(__get_id_number)
     full_frame = full_frame.sort_values(by="int_study_id")
     full_frame.drop(columns=["int_study_id"], inplace=True)
     full_frame.to_csv(
