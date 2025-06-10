@@ -24,12 +24,14 @@ def __section_hash(
 
 
 def __get_relevant_paths(input_folder: str) -> Iterable[str]:
-    for root, dirs, files in os.walk(input_folder):
-        if "processed" in root.lower():
-            for fn in files:
-                if fn.lower().endswith("tsv"):
-                    yield os.path.join(input_folder, fn)
-
+    # for root, dirs, files in os.walk(input_folder):
+    #     if "processed" in root.lower():
+    #         for fn in files:
+    #             if fn.lower().endswith("tsv"):
+    #                 yield os.path.join(input_folder, fn)
+    for fn in os.listdir(input_folder):
+        if fn.lower().endswith("tsv"):
+            yield os.path.join(input_folder, fn)
 
 def __build_frame(
     shard_bundle_dirs: list[str],
@@ -38,14 +40,17 @@ def __build_frame(
         return pd.DataFrame([])
 
     def load_frame(frame_fn: str) -> pd.DataFrame:
-        return pd.read_csv(frame_fn, sep="\t")
+        df = pd.read_csv(frame_fn, sep="\t")
+        print(frame_fn)
+        print(df.columns)
+        return df
 
     full_frame = pd.concat(
         chain.from_iterable(
             map(
                 load_frame,
                 __get_relevant_paths(
-                    input_folder=os.path.join(shard_bundle_dir, shard_dir)
+                    input_folder=os.path.join(shard_bundle_dir, shard_dir, "processed")
                 ),
             )
             for shard_bundle_dir in shard_bundle_dirs
