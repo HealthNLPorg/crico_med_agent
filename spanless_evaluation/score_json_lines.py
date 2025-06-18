@@ -48,6 +48,31 @@ def __shared_med_dicts(
             yield d_1, d_2
 
 
+# def __attr_confusion_mattrix(
+#     ground_med_dicts: list[med_dict],
+#     pred_med_dicts: list[med_dict],
+#     true_positive_meds: set[str],
+#     false_positive_meds: set[str],
+#     false_negative_meds: set[str],
+#     attr_key: str,
+# ) -> tuple[int, int, int]:
+#     attr_matches_true_positive = {
+#         ground_med_dict[attr_key] and pred_med_dict[attr_key]
+#         for ground_med_dict, pred_med_dict in __shared_med_dicts(
+#             ground_med_dicts, pred_med_dicts, true_positive_meds
+#         )
+#     }
+#     total_true_positive_attr = len(
+#         {has_inst for has_inst in attr_matches_true_positive if has_inst}
+#     )
+#     tp_med_fp_attr = len(
+#         {has_inst for has_inst in attr_matches_true_positive if not has_inst}
+#     )
+#     fp_med_fp_attr = len(
+
+#     )
+
+
 def __study_id_confusion_matrix(
     ground_med_dicts: list[med_dict],
     pred_med_dicts: list[med_dict],
@@ -65,19 +90,6 @@ def __study_id_confusion_matrix(
     true_positive_meds = ground_meds.intersection(pred_meds)
     false_positive_meds = pred_meds.difference(ground_meds)
     false_negative_meds = ground_meds.difference(pred_meds)
-    instruction_matches_true_positive = {
-        ground_med_dict["has_at_least_one_instruction"]
-        and pred_med_dict["has_at_least_one_instruction"]
-        for ground_med_dict, pred_med_dict in __shared_med_dicts(
-            ground_med_dicts, pred_med_dicts, true_positive_meds
-        )
-    }
-    total_true_positive_instructions = len(
-        {has_inst for has_inst in instruction_matches_true_positive if has_inst}
-    )
-    total_false_positive_instructions = len(
-        {has_inst for has_inst in instruction_matches_true_positive if not has_inst}
-    )
 
     return {
         "medication": (
