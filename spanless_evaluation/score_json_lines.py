@@ -22,8 +22,19 @@ parser.add_argument(
 )
 
 
-def main() -> None:
+def evaluate(
+    ground_truth_jsonl: str,
+    prediction_jsonl: str,
+) -> None:
     pass
+
+
+def main() -> None:
+    args = parser.parse_args()
+    evaluate(
+        args.ground_truth_jsonl,
+        args.prediction_jsonl,
+    )
 
 
 if __name__ == "__main__":

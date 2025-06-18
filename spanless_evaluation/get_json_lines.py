@@ -1,6 +1,7 @@
 import argparse
 import os
 import json
+import pandas as pd
 from lxml import etree
 from lxml.etree import (
     _Element,
@@ -38,11 +39,11 @@ parser.add_argument(
 )
 
 
-def __build_medication_dictionary(
+def __build_medication_dictionary_from_anafora(
     note_text: str,
     study_id: int,
     medication_annotation: _Element,
-) -> dict[str, str | bool]:
+) -> dict[str, str | int | bool]:
     begin, end = [
         int(idx) for idx in medication_annotation.find("span").text.split(",")
     ]
@@ -59,13 +60,26 @@ def __build_medication_dictionary(
     }
 
 
+def __build_medication_dictionary_from_tsv(
+    row: pd.Series,
+) -> dict[str, str | int | bool]:
+    if len(row.medication) == 0:
+        logger.warning(f"Empty medication found in {row.filename}")
+    return {
+        "study_id": int(row.filename.split("_")[-1]),
+        "medication": row.medication.strip().lower(),
+        "has_at_least_one_instruction": len(row.instruction) > 0,
+        "has_at_least_one_condition": len(row.condition) > 0,
+    }
+
+
 # In [50]: import json
 # In [51]: json.dumps({"_json_true": True, "_json_false_": False})
 # Out[51]: '{"_json_true": true, "_json_false_": false}'
 # It gets taken care of
 def __file_to_dictionaries(
     study_id: int, xml_path: str, note_path: str
-) -> Iterable[dict[str, str | bool]]:
+) -> Iterable[dict[str, str | int | bool]]:
     with open(xml_path, mode="rb") as xml_f:
         anafora_xml = etree.fromstring(xml_f.read())
 
@@ -73,9 +87,9 @@ def __file_to_dictionaries(
         note_text = note_f.read()
 
     __local_med_dict = partial(
-        __build_medication_dictionary,
-        note_text=note_text,
-        study_id=study_id,
+        __build_medication_dictionary_from_anafora,
+        note_text,
+        study_id,
     )
     for annotation in anafora_xml.find("annotations"):
         if (
@@ -85,15 +99,20 @@ def __file_to_dictionaries(
             yield __local_med_dict(annotation)
 
 
+def __get_med_json_line(medication_dictionary: dict[str, str | int | bool]) -> str:
+    return f"{json.dumps(medication_dictionary)}\n"
+
+
 def __dir_to_dictionaries(
     anafora_dir: str,
-) -> Iterable[dict[str, str | bool]]:
+) -> Iterable[dict[str, str | int | bool]]:
     def get_study_id(subdir: str) -> int:
         return int(subdir.split("_")[-1])
 
     def get_xml_and_note_fns(abs_subdir: str) -> tuple[str, str]:
         relevant_files = (fn for fn in os.listdir(abs_subdir) if fn.startswith("Study"))
         xml_fn, note_fn = sorted(relevant_files, reverse=True)
+        return xml_fn, note_fn
 
     for subdir in os.listdir(anafora_dir):
         if subdir.startswith("Study"):
@@ -113,19 +132,24 @@ def __anafora_process(
 ) -> None:
     out_path = os.path.join(output_dir, f"{os.path.basename(paired_anafora_dir)}.jsonl")
 
-    def get_med_json_line(medication_dictionary: dict[str, str | bool]) -> str:
-        return f"{json.dumps(medication_dictionary)}\n"
-
     with open(out_path, mode="wt", encoding="utf-8") as f:
         for medication_dictionary in __dir_to_dictionaries(paired_anafora_dir):
-            f.write(get_med_json_line(medication_dictionary))
+            f.write(__get_med_json_line(medication_dictionary))
 
 
 def __tsv_process(
     input_tsv: str,
     output_dir: str,
 ) -> None:
-    pass
+    df = pd.read_csv(input_tsv, sep="\t").fillna("")
+
+    out_path = os.path.join(output_dir, f"{os.path.basename(input_tsv)}.jsonl")
+
+    with open(out_path, mode="wt", encoding="utf-8") as f:
+        for medication_dictionary in df.apply(
+            __build_medication_dictionary_from_tsv, axis=1
+        ):
+            f.write(__get_med_json_line(medication_dictionary))
 
 
 def main() -> None:
