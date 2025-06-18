@@ -13,8 +13,10 @@ parser.add_argument("--remainder_shards_bundled", type=str, default=None)
 parser.add_argument("--empty_meds_tsv", type=str, default=None)
 parser.add_argument("--output_dir", type=str)
 
+
 def __get_id_number(fn: str) -> int:
     return int(fn.split("_")[-1])
+
 
 def __section_hash(
     base_filename: str,
@@ -32,6 +34,7 @@ def __get_relevant_paths(input_folder: str) -> Iterable[str]:
     for fn in os.listdir(input_folder):
         if fn.lower().endswith("tsv"):
             yield os.path.join(input_folder, fn)
+
 
 def __build_frame(
     shard_bundle_dirs: list[str],
@@ -116,7 +119,6 @@ def __process(
         #     fixed_frames_sections
         # ), problem_sections.intersection(fixed_frames_sections)
         # assert problem_sections.issubset(original_frames_sections)
-
 
         def __is_not_problem_section(row: pd.Series) -> bool:
             return __local_section_hash(row) not in problem_sections
