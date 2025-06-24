@@ -62,10 +62,9 @@ def __load_med_dicts(jsonl_path: str) -> Iterable[med_dict]:
             yield json.loads(line)
 
 
-def __med_matches(med_dicts: Iterable[med_dict], *meds: str) -> Iterable[med_dict]:
-    med_set = set(meds)
+def __med_matches(med_dicts: Iterable[med_dict], meds: set[str]) -> Iterable[med_dict]:
     for med_dict in med_dicts:
-        if med_dict["medication"] in med_set:
+        if med_dict["medication"] in meds:
             yield med_dict
 
 
@@ -73,8 +72,8 @@ def __shared_med_dicts(
     d_ls_1: list[med_dict], d_ls_2: list[med_dict], meds: set[str]
 ) -> Iterable[tuple[med_dict, med_dict]]:
     for med in meds:
-        d_ls_1_matches = list(__med_matches(d_ls_1, med))
-        d_ls_2_matches = list(__med_matches(d_ls_2, med))
+        d_ls_1_matches = list(__med_matches(d_ls_1, {med}))
+        d_ls_2_matches = list(__med_matches(d_ls_2, {med}))
         assert len(d_ls_1_matches) == len(d_ls_2_matches) == 1
         for d_1, d_2 in zip(d_ls_1_matches, d_ls_2_matches):
             yield d_1, d_2
@@ -123,7 +122,7 @@ def __attr_confusion_mattrix(
             1
             for has_attr in map(
                 itemgetter(attr_key),
-                __med_matches(pred_med_dicts, *false_positive_meds),
+                __med_matches(pred_med_dicts, false_positive_meds),
             )
             if has_attr
         )
@@ -133,7 +132,7 @@ def __attr_confusion_mattrix(
         # false-negativity of the (un-predicted) ground truth medication with which it is associated
         1
         for has_attr in map(
-            itemgetter(attr_key), __med_matches(ground_med_dicts, *false_negative_meds)
+            itemgetter(attr_key), __med_matches(ground_med_dicts, false_negative_meds)
         )
         if has_attr
     )
