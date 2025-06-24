@@ -4,6 +4,7 @@ import json
 from collections.abc import Iterable
 from operator import itemgetter
 from itertools import groupby
+from typing import cast
 
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,34 @@ parser.add_argument(
 med_dict = dict[str, str | int | bool]
 
 
+def __precision(tp: int, fp: int) -> float:
+    return tp / (tp + fp)
+
+
+def __recall(tp: int, fn: int) -> float:
+    return tp / (tp + fn)
+
+
+def __f1(precision: float, recall: float) -> float:
+    return (2 * precision * recall) / (precision + recall)
+
+
+def __scores(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
+    precision = __precision(tp, fp)
+    recall = __recall(tp, fn)
+    return precision, recall, __f1(precision, recall)
+
+
+def __get_type_level_scores(
+    study_id_to_confusion_matrix: dict[str, dict[str, tuple[int, int, int]]],
+    type_key: str,
+) -> tuple[float, float, float]:
+    total_tp, total_fp, total_fn = map(
+        sum, zip(*map(itemgetter(type_key), study_id_to_confusion_matrix.values()))
+    )
+    return __scores(total_tp, total_fp, total_fn)
+
+
 def __load_med_dicts(jsonl_path: str) -> Iterable[med_dict]:
     with open(jsonl_path, mode="rt", encoding="utf-8") as f:
         for line in f:
@@ -36,7 +65,7 @@ def __load_med_dicts(jsonl_path: str) -> Iterable[med_dict]:
 def __med_matches(med_dicts: Iterable[med_dict], *meds: str) -> Iterable[med_dict]:
     med_set = set(meds)
     for med_dict in med_dicts:
-        if med_dict["medication"] in meds:
+        if med_dict["medication"] in med_set:
             yield med_dict
 
 
@@ -60,15 +89,6 @@ def __attr_confusion_mattrix(
     attr_key: str,
     # convention is TP, FP, FN
 ) -> tuple[int, int, int]:
-    tp_med_dicts = list(
-        __shared_med_dicts(ground_med_dicts, pred_med_dicts, true_positive_meds)
-    )
-    attr_matches_true_positive = [
-        ground_med_dict[attr_key] and pred_med_dict[attr_key]
-        for ground_med_dict, pred_med_dict in __shared_med_dicts(
-            ground_med_dicts, pred_med_dicts, true_positive_meds
-        )
-    ]
     tp_med_tp_attr = sum(
         1
         for ground_med_dict, pred_med_dict in __shared_med_dicts(
@@ -120,6 +140,7 @@ def __attr_confusion_mattrix(
     total_attr_tp = tp_med_tp_attr
     total_attr_fp = tp_med_fp_attr + fp_med_fp_attr
     total_attr_fn = tp_med_fn_attr + fn_med_fn_attr
+    return total_attr_tp, total_attr_fp, total_attr_fn
 
 
 def __study_id_confusion_matrix(
@@ -134,8 +155,9 @@ def __study_id_confusion_matrix(
     # they're the same, and instructions/conditions percolate up,
     # TLDR using set arithmetic here should suffice
 
-    ground_meds = {med_dict["medication"] for med_dict in ground_med_dicts}
-    pred_meds = {med_dict["medication"] for med_dict in pred_med_dicts}
+    # For mypy
+    ground_meds = {cast(str, med_dict["medication"]) for med_dict in ground_med_dicts}
+    pred_meds = {cast(str, med_dict["medication"]) for med_dict in pred_med_dicts}
     true_positive_meds = ground_meds.intersection(pred_meds)
     false_positive_meds = pred_meds.difference(ground_meds)
     false_negative_meds = ground_meds.difference(pred_meds)
@@ -145,7 +167,23 @@ def __study_id_confusion_matrix(
             len(true_positive_meds),
             len(false_positive_meds),
             len(false_positive_meds),
-        )
+        ),
+        "instruction": __attr_confusion_mattrix(
+            ground_med_dicts=ground_med_dicts,
+            pred_med_dicts=pred_med_dicts,
+            true_positive_meds=true_positive_meds,
+            false_positive_meds=false_positive_meds,
+            false_negative_meds=false_negative_meds,
+            attr_key="has_at_least_one_instruction",
+        ),
+        "condition": __attr_confusion_mattrix(
+            ground_med_dicts=ground_med_dicts,
+            pred_med_dicts=pred_med_dicts,
+            true_positive_meds=true_positive_meds,
+            false_positive_meds=false_positive_meds,
+            false_negative_meds=false_negative_meds,
+            attr_key="has_at_least_one_condition",
+        ),
     }
 
 
@@ -180,6 +218,24 @@ def __evaluate(
             prediction_med_dicts, key=itemgetter("study_id")
         )
     }
+    study_id_to_confusion_matrix = {
+        study_id: __study_id_confusion_matrix(
+            ground_med_dicts=ground_truth_study_id_to_meds.get(study_id, []),
+            pred_med_dicts=prediction_study_id_to_meds.get(study_id, []),
+        )
+        for study_id in {
+            *prediction_study_id_to_meds,
+            *ground_truth_study_id_to_meds,
+        }
+    }
+    for type_key in ["medication", "instruction", "condition"]:
+        precision, recall, f1 = __get_type_level_scores(
+            study_id_to_confusion_matrix=study_id_to_confusion_matrix, type_key=type_key
+        )
+        print(f"Scores for {type_key}:")
+        print(f"Precision: {precision:.2f}")
+        print(f"Recall:    {recall:.2f}")
+        print(f"F1:        {f1:.2f}")
 
 
 def main() -> None:
