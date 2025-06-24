@@ -33,44 +33,93 @@ def __load_med_dicts(jsonl_path: str) -> Iterable[med_dict]:
             yield json.loads(line)
 
 
+def __med_matches(med_dicts: Iterable[med_dict], *meds: str) -> Iterable[med_dict]:
+    med_set = set(meds)
+    for med_dict in med_dicts:
+        if med_dict["medication"] in meds:
+            yield med_dict
+
+
 def __shared_med_dicts(
     d_ls_1: list[med_dict], d_ls_2: list[med_dict], meds: set[str]
 ) -> Iterable[tuple[med_dict, med_dict]]:
     for med in meds:
-        d_ls_1_matches = [
-            med_dict for med_dict in d_ls_1 if med_dict["medication"] == med
-        ]
-        d_ls_2_matches = [
-            med_dict for med_dict in d_ls_2 if med_dict["medication"] == med
-        ]
+        d_ls_1_matches = list(__med_matches(d_ls_1, med))
+        d_ls_2_matches = list(__med_matches(d_ls_2, med))
         assert len(d_ls_1_matches) == len(d_ls_2_matches) == 1
         for d_1, d_2 in zip(d_ls_1_matches, d_ls_2_matches):
             yield d_1, d_2
 
 
-# def __attr_confusion_mattrix(
-#     ground_med_dicts: list[med_dict],
-#     pred_med_dicts: list[med_dict],
-#     true_positive_meds: set[str],
-#     false_positive_meds: set[str],
-#     false_negative_meds: set[str],
-#     attr_key: str,
-# ) -> tuple[int, int, int]:
-#     attr_matches_true_positive = {
-#         ground_med_dict[attr_key] and pred_med_dict[attr_key]
-#         for ground_med_dict, pred_med_dict in __shared_med_dicts(
-#             ground_med_dicts, pred_med_dicts, true_positive_meds
-#         )
-#     }
-#     total_true_positive_attr = len(
-#         {has_inst for has_inst in attr_matches_true_positive if has_inst}
-#     )
-#     tp_med_fp_attr = len(
-#         {has_inst for has_inst in attr_matches_true_positive if not has_inst}
-#     )
-#     fp_med_fp_attr = len(
-
-#     )
+def __attr_confusion_mattrix(
+    ground_med_dicts: list[med_dict],
+    pred_med_dicts: list[med_dict],
+    true_positive_meds: set[str],
+    false_positive_meds: set[str],
+    false_negative_meds: set[str],
+    attr_key: str,
+    # convention is TP, FP, FN
+) -> tuple[int, int, int]:
+    tp_med_dicts = list(
+        __shared_med_dicts(ground_med_dicts, pred_med_dicts, true_positive_meds)
+    )
+    attr_matches_true_positive = [
+        ground_med_dict[attr_key] and pred_med_dict[attr_key]
+        for ground_med_dict, pred_med_dict in __shared_med_dicts(
+            ground_med_dicts, pred_med_dicts, true_positive_meds
+        )
+    ]
+    tp_med_tp_attr = sum(
+        1
+        for ground_med_dict, pred_med_dict in __shared_med_dicts(
+            ground_med_dicts, pred_med_dicts, true_positive_meds
+        )
+        # Need them to both be true
+        if ground_med_dict[attr_key] and pred_med_dict[attr_key]
+    )
+    tp_med_fp_attr = sum(
+        1
+        for ground_med_dict, pred_med_dict in __shared_med_dicts(
+            ground_med_dicts, pred_med_dicts, true_positive_meds
+        )
+        # Need ground to be false and predicted to be true
+        if not ground_med_dict[attr_key] and pred_med_dict[attr_key]
+    )
+    tp_med_fn_attr = sum(
+        1
+        for ground_med_dict, pred_med_dict in __shared_med_dicts(
+            ground_med_dicts, pred_med_dicts, true_positive_meds
+        )
+        # Need ground to be true and predicted to be false
+        if ground_med_dict[attr_key] and not pred_med_dict[attr_key]
+    )
+    # Definitionally no FN/FP meds with TP attributes since
+    # we're ignoring spans and only considering attributes
+    # insofar as they are linked to meds
+    # Definitionally no FN med with FP attr
+    fp_med_fp_attr = (
+        sum(  # Logic is an attribute's false-positivity is inherited from the
+            # false-positivity of the predicted medication with which it is associated
+            1
+            for has_attr in map(
+                itemgetter(attr_key),
+                __med_matches(pred_med_dicts, *false_positive_meds),
+            )
+            if has_attr
+        )
+    )
+    # Definitionally no FN med with FP attr
+    fn_med_fn_attr = sum(  # Logic is an attribute's false-negativity is inherited from the
+        # false-negativity of the (un-predicted) ground truth medication with which it is associated
+        1
+        for has_attr in map(
+            itemgetter(attr_key), __med_matches(ground_med_dicts, *false_negative_meds)
+        )
+        if has_attr
+    )
+    total_attr_tp = tp_med_tp_attr
+    total_attr_fp = tp_med_fp_attr + fp_med_fp_attr
+    total_attr_fn = tp_med_fn_attr + fn_med_fn_attr
 
 
 def __study_id_confusion_matrix(
