@@ -43,7 +43,6 @@ parser.add_argument(
 
 def __build_medication_dictionary_from_anafora(
     note_text: str,
-    study_id: int,
     medication_annotation: _Element,
 ) -> dict[str, str | int | bool]:
     begin, end = [
@@ -51,7 +50,6 @@ def __build_medication_dictionary_from_anafora(
     ]
     properties = medication_annotation.find("properties")
     return {
-        "study_id": study_id,
         "medication": note_text[begin:end].strip().lower(),
         "has_at_least_one_instruction": any(
             p.text for p in properties.findall("instruction_")
@@ -80,7 +78,7 @@ def __build_medication_dictionary_from_tsv(
 # Out[51]: '{"_json_true": true, "_json_false_": false}'
 # It gets taken care of
 def __file_to_unmerged_dictionaries(
-    study_id: int, xml_path: str, note_path: str
+    xml_path: str, note_path: str
 ) -> Iterable[dict[str, str | int | bool]]:
     with open(xml_path, mode="rb") as xml_f:
         anafora_xml = etree.fromstring(xml_f.read())
@@ -91,7 +89,6 @@ def __file_to_unmerged_dictionaries(
     __local_med_dict = partial(
         __build_medication_dictionary_from_anafora,
         note_text,
-        study_id,
     )
     for annotation in anafora_xml.find("annotations"):
         if (
@@ -105,7 +102,7 @@ def __file_to_merged_dictionaries(
     study_id: int, xml_path: str, note_path: str
 ) -> Iterable[dict[str, str | int | bool]]:
     unmerged_medication_dictionaries = sorted(
-        __file_to_unmerged_dictionaries(study_id, xml_path, note_path),
+        __file_to_unmerged_dictionaries(xml_path, note_path),
         key=itemgetter("medication"),
     )
     for medication, medication_dictionaries_iter in groupby(
@@ -115,7 +112,7 @@ def __file_to_merged_dictionaries(
         # to avoid consumption on repeat iterations
         medication_dictionaries = list(medication_dictionaries_iter)
         yield {
-            "study_id": medication_dictionaries[0].get(study_id, "ERR_MISSING"),
+            "study_id": study_id,
             "medication": medication,
             "has_at_least_one_instruction": any(
                 map(itemgetter("has_at_least_one_instruction"), medication_dictionaries)
@@ -164,7 +161,10 @@ def __anafora_process(
     paired_anafora_dir: str,
     output_dir: str,
 ) -> None:
-    out_path = os.path.join(output_dir, f"{os.path.basename(paired_anafora_dir)}.jsonl")
+    # str.rstrip since if it ends with /
+    # basename returns ""
+    base_folder_name = os.path.basename(paired_anafora_dir.rstrip("/"))
+    out_path = os.path.join(output_dir, f"{base_folder_name}.jsonl")
 
     with open(out_path, mode="wt", encoding="utf-8") as f:
         for medication_dictionary in __dir_to_dictionaries(paired_anafora_dir):
