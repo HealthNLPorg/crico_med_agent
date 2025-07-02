@@ -10,7 +10,9 @@ from lxml.etree import (
 # like a perpetrator of antipatterns for using types?
 import logging
 from collections.abc import Iterable
+from operator import itemgetter
 from functools import partial
+from itertools import groupby
 
 
 logger = logging.getLogger(__name__)
@@ -77,7 +79,7 @@ def __build_medication_dictionary_from_tsv(
 # In [51]: json.dumps({"_json_true": True, "_json_false_": False})
 # Out[51]: '{"_json_true": true, "_json_false_": false}'
 # It gets taken care of
-def __file_to_dictionaries(
+def __file_to_unmerged_dictionaries(
     study_id: int, xml_path: str, note_path: str
 ) -> Iterable[dict[str, str | int | bool]]:
     with open(xml_path, mode="rb") as xml_f:
@@ -99,6 +101,31 @@ def __file_to_dictionaries(
             yield __local_med_dict(annotation)
 
 
+def __file_to_merged_dictionaries(
+    study_id: int, xml_path: str, note_path: str
+) -> Iterable[dict[str, str | int | bool]]:
+    unmerged_medication_dictionaries = sorted(
+        __file_to_unmerged_dictionaries(study_id, xml_path, note_path),
+        key=itemgetter("medication"),
+    )
+    for medication, medication_dictionaries_iter in groupby(
+        unmerged_medication_dictionaries,
+        key=itemgetter("medication"),
+    ):
+        # to avoid consumption on repeat iterations
+        medication_dictionaries = list(medication_dictionaries_iter)
+        yield {
+            "study_id": medication_dictionaries[0].get(study_id, "ERR_MISSING"),
+            "medication": medication,
+            "has_at_least_one_instruction": any(
+                map(itemgetter("has_at_least_one_instruction"), medication_dictionaries)
+            ),
+            "has_at_least_one_condition": any(
+                map(itemgetter("has_at_least_one_condition"), medication_dictionaries)
+            ),
+        }
+
+
 def __get_med_json_line(medication_dictionary: dict[str, str | int | bool]) -> str:
     return f"{json.dumps(medication_dictionary)}\n"
 
@@ -109,21 +136,28 @@ def __dir_to_dictionaries(
     def get_study_id(subdir: str) -> int:
         return int(subdir.split("_")[-1])
 
-    def get_xml_and_note_fns(abs_subdir: str) -> tuple[str, str]:
+    def get_xml_and_note_fns(abs_subdir: str) -> tuple[str | None, str]:
         relevant_files = (fn for fn in os.listdir(abs_subdir) if fn.startswith("Study"))
-        xml_fn, note_fn = sorted(relevant_files, reverse=True)
-        return xml_fn, note_fn
+        relevant_files_sorted = sorted(relevant_files, reverse=True)
+        if len(relevant_files_sorted) == 2:
+            xml_fn, note_fn = relevant_files_sorted
+            return xml_fn, note_fn
+        elif len(relevant_files_sorted) == 1:
+            return None, relevant_files_sorted[0]
+        else:
+            raise ValueError(f"{abs_subdir} has invalid contents: {relevant_files}")
 
     for subdir in os.listdir(anafora_dir):
         if subdir.startswith("Study"):
             study_id = get_study_id(subdir)
             abs_subdir = os.path.join(anafora_dir, subdir)
             xml_fn, note_fn = get_xml_and_note_fns(abs_subdir)
-            xml_path = os.path.join(abs_subdir, xml_fn)
-            note_path = os.path.join(abs_subdir, note_fn)
-            yield from __file_to_dictionaries(
-                study_id=study_id, xml_path=xml_path, note_path=note_path
-            )
+            if xml_fn is not None:
+                xml_path = os.path.join(abs_subdir, xml_fn)
+                note_path = os.path.join(abs_subdir, note_fn)
+                yield from __file_to_merged_dictionaries(
+                    study_id=study_id, xml_path=xml_path, note_path=note_path
+                )
 
 
 def __anafora_process(
