@@ -10,7 +10,11 @@ from collections.abc import Iterable
 from collections import Counter
 from operator import itemgetter
 from functools import partial
-
+from itertools import groupby
+from lxml.etree import (
+    _Element,
+)
+from lxml import etree
 import numpy as np
 import pandas as pd
 from anafora_data import (
@@ -37,12 +41,20 @@ parser.add_argument(
     "--input_tsv",
     type=str,
     help="TSV with instances in the output column",
+    default=None,
 )
 
+parser.add_argument(
+    "--paired_anafora_dir",
+    type=str,
+    help="TSV with instances in the output column",
+    default=None,
+)
 parser.add_argument(
     "--output_dir",
     type=str,
     help="Where to output STUFF",
+    default=None,
 )
 parser.add_argument(
     "--input_mode",
@@ -76,6 +88,152 @@ class ConfusionMatrix(Counter):
 
     def is_complete_hallucination(self) -> bool:
         return self.totals["FP"] > 0 and self.totals["TP"] == 0
+
+
+# In [50]: import json
+# In [51]: json.dumps({"_json_true": True, "_json_false_": False})
+# Out[51]: '{"_json_true": true, "_json_false_": false}'
+# It gets taken care of
+def __file_to_unmerged_dictionaries(
+    xml_path: str, note_path: str
+) -> Iterable[dict[str, str | int | bool]]:
+    with open(xml_path, mode="rb") as xml_f:
+        anafora_xml = etree.fromstring(xml_f.read())
+
+    with open(note_path, mode="rt") as note_f:
+        note_text = note_f.read()
+
+    __local_med_dict = partial(
+        __build_medication_dictionary_from_anafora,
+        note_text,
+    )
+    for annotation in anafora_xml.find("annotations"):
+        if (
+            annotation.tag == "entity"
+            and annotation.find("type").text == "Medications/Drugs"
+        ):
+            yield __local_med_dict(annotation)
+
+
+def __file_to_merged_dictionaries(
+    study_id: int, xml_path: str, note_path: str
+) -> Iterable[dict[str, str | int | bool]]:
+    unmerged_medication_dictionaries = sorted(
+        __file_to_unmerged_dictionaries(xml_path, note_path),
+        key=itemgetter("medication"),
+    )
+    for medication, medication_dictionaries_iter in groupby(
+        unmerged_medication_dictionaries,
+        key=itemgetter("medication"),
+    ):
+        # to avoid consumption on repeat iterations
+        medication_dictionaries = list(medication_dictionaries_iter)
+        yield {
+            "study_id": study_id,
+            "medication": medication,
+            "has_at_least_one_instruction": any(
+                map(itemgetter("has_at_least_one_instruction"), medication_dictionaries)
+            ),
+            "has_at_least_one_condition": any(
+                map(itemgetter("has_at_least_one_condition"), medication_dictionaries)
+            ),
+        }
+
+
+def __build_medication_dictionary_from_tsv(
+    row: pd.Series,
+) -> dict[str, str | int | bool]:
+    print(row)
+    if len(row.medication) == 0:
+        logger.warning(f"Empty medication found in {row.filename}")
+    return {
+        "study_id": int(row.filename.split("_")[-1]),
+        "medication": row.medication.strip().lower(),
+        "has_at_least_one_instruction": len(row.instruction) > 0,
+        "has_at_least_one_condition": len(row.condition) > 0,
+    }
+
+
+def __build_medication_dictionary_from_anafora(
+    note_text: str,
+    medication_annotation: _Element,
+) -> dict[str, str | int | bool]:
+    begin, end = [
+        int(idx) for idx in medication_annotation.find("span").text.split(",")
+    ]
+    properties = medication_annotation.find("properties")
+    return {
+        "medication": note_text[begin:end].strip().lower(),
+        "has_at_least_one_instruction": any(
+            p.text for p in properties.findall("instruction_")
+        ),
+        "has_at_least_one_condition": any(
+            p.text for p in properties.findall("instruction_condition")
+        ),
+    }
+
+
+def __get_med_json_line(medication_dictionary: dict[str, str | int | bool]) -> str:
+    return f"{json.dumps(medication_dictionary)}\n"
+
+
+def __dir_to_dictionaries(
+    anafora_dir: str,
+) -> Iterable[dict[str, str | int | bool]]:
+    def get_study_id(subdir: str) -> int:
+        return int(subdir.split("_")[-1])
+
+    def get_xml_and_note_fns(abs_subdir: str) -> tuple[str | None, str]:
+        relevant_files = (fn for fn in os.listdir(abs_subdir) if fn.startswith("Study"))
+        relevant_files_sorted = sorted(relevant_files, reverse=True)
+        if len(relevant_files_sorted) == 2:
+            xml_fn, note_fn = relevant_files_sorted
+            return xml_fn, note_fn
+        elif len(relevant_files_sorted) == 1:
+            return None, relevant_files_sorted[0]
+        else:
+            raise ValueError(f"{abs_subdir} has invalid contents: {relevant_files}")
+
+    for subdir in os.listdir(anafora_dir):
+        if subdir.startswith("Study"):
+            study_id = get_study_id(subdir)
+            abs_subdir = os.path.join(anafora_dir, subdir)
+            xml_fn, note_fn = get_xml_and_note_fns(abs_subdir)
+            if xml_fn is not None:
+                xml_path = os.path.join(abs_subdir, xml_fn)
+                note_path = os.path.join(abs_subdir, note_fn)
+                yield from __file_to_merged_dictionaries(
+                    study_id=study_id, xml_path=xml_path, note_path=note_path
+                )
+
+
+def agent_2_to_json_lines(
+    input_tsv: str,
+    output_dir: str,
+) -> None:
+    df = pd.read_csv(input_tsv, sep="\t").fillna("")
+
+    out_path = os.path.join(output_dir, f"{os.path.basename(input_tsv)}.jsonl")
+
+    with open(out_path, mode="wt", encoding="utf-8") as f:
+        for medication_dictionary in df.apply(
+            __build_medication_dictionary_from_tsv, axis=1
+        ):
+            f.write(__get_med_json_line(medication_dictionary))
+
+
+def anafora_to_json_lines(
+    paired_anafora_dir: str,
+    output_dir: str,
+) -> None:
+    # str.rstrip since if it ends with /
+    # basename returns ""
+    base_folder_name = os.path.basename(paired_anafora_dir.rstrip("/"))
+    out_path = os.path.join(output_dir, f"{base_folder_name}.jsonl")
+
+    with open(out_path, mode="wt", encoding="utf-8") as f:
+        for medication_dictionary in __dir_to_dictionaries(paired_anafora_dir):
+            f.write(__get_med_json_line(medication_dictionary))
 
 
 def get_medication_anafora_annotation(row: pd.Series) -> Medication:
@@ -491,7 +649,7 @@ def output_to_result(row: pd.Series) -> str:
     return full_output.split("\nResult:\n")[-1].strip()
 
 
-def anafora_process(
+def agent_2_to_anafora(
     input_tsv: str, output_dir: str, get_differences: bool = False
 ) -> None:
     raw_frame = pd.read_csv(input_tsv, sep="\t")
@@ -591,7 +749,7 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     return full_frame
 
 
-def windows_process(input_tsv: str, output_dir: str) -> None:
+def agent_1_to_agent_2(input_tsv: str, output_dir: str) -> None:
     raw_frame = pd.read_csv(input_tsv, sep="\t")
     expanded_windows_frame = build_frame_with_med_windows(raw_frame)
     mkdir(output_dir)
@@ -604,13 +762,27 @@ def main() -> None:
     args = parser.parse_args()
     match args.input_mode, args.output_mode:
         case "agent_2_output", "anafora_xml":
-            anafora_process(args.input_tsv, args.output_dir, args.get_differences)
+            assert args.input_tsv is not None and args.output_dir is not None, (
+                f"input tsv is {args.input_tsv} and output dir is {args.output_dir} both must be non-None"
+            )
+            agent_2_to_anafora(args.input_tsv, args.output_dir, args.get_differences)
         case "agent_1_output", "agent_2_output":
-            windows_process(args.input_tsv, args.output_dir)
+            assert args.input_tsv is not None and args.output_dir is not None, (
+                f"input tsv is {args.input_tsv} and output dir is {args.output_dir} both must be non-None"
+            )
+            agent_1_to_agent_2(args.input_tsv, args.output_dir)
         case "anafora_xml", "json_lines":
-            pass
+            assert (
+                args.paired_anafora_dir is not None and args.output_dir is not None
+            ), (
+                f"input tsv is {args.paired_anafora_dir} and output dir is {args.output_dir} both must be non-None"
+            )
+            anafora_to_json_lines(args.paired_anafora_dir, args.output_dir)
         case "agent_2_output", "json_lines":
-            pass
+            assert args.input_tsv is not None and args.output_dir is not None, (
+                f"input tsv is {args.input_tsv} and output dir is {args.output_dir} both must be non-None"
+            )
+            agent_2_to_json_lines(args.input_tsv, args.output_dir)
         case _:
             logger.info(
                 f"No transformations defined from {args.input_mode} to {args.output_mode} - skipping"
