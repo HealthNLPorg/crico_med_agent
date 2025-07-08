@@ -24,6 +24,7 @@ from anafora_data import (
 )
 from utils import basename_no_ext, mkdir
 
+DATA_SPACES = ["anafora_xml", "agent_1_output", "agent_2_output", "json_lines"]
 logger = logging.getLogger(__name__)
 
 logging.basicConfig(
@@ -44,10 +45,16 @@ parser.add_argument(
     help="Where to output STUFF",
 )
 parser.add_argument(
-    "--mode",
+    "--input_mode",
     type=str,
-    choices=["anafora", "windows"],
-    help="Whether stuff is Anafora XML or Windows",
+    choices=DATA_SPACES,
+    help="Representation space of the input data",
+)
+parser.add_argument(
+    "--output_mode",
+    type=str,
+    choices=DATA_SPACES,
+    help="Target representation space",
 )
 parser.add_argument(
     "--get_differences",
@@ -72,8 +79,6 @@ class ConfusionMatrix(Counter):
 
 
 def get_medication_anafora_annotation(row: pd.Series) -> Medication:
-    # inappropriately named because I SCREWED UP
-    # YES THAT'S RIGHT I SCREWED UP CAN YOU BELIEVE IT???????????
     cas_level_span = literal_eval(row["medication_local_offsets"])
     filename = row["filename"]
     medication = Medication(span=cas_level_span, filename=filename)
@@ -597,11 +602,19 @@ def windows_process(input_tsv: str, output_dir: str) -> None:
 
 def main() -> None:
     args = parser.parse_args()
-    match args.mode:
-        case "anafora":
+    match args.input_mode, args.output_mode:
+        case "agent_2_output", "anafora_xml":
             anafora_process(args.input_tsv, args.output_dir, args.get_differences)
-        case "windows":
+        case "agent_1_output", "agent_2_output":
             windows_process(args.input_tsv, args.output_dir)
+        case "anafora_xml", "json_lines":
+            pass
+        case "agent_2_output", "json_lines":
+            pass
+        case _:
+            logger.info(
+                f"No transformations defined from {args.input_mode} to {args.output_mode} - skipping"
+            )
 
 
 if __name__ == "__main__":
