@@ -288,10 +288,10 @@ class AnaforaDocument:
 
     @staticmethod
     def order_entities(entities: Iterable[AnaforaEntity]) -> list[AnaforaEntity]:
-        def span(anafora_entity: AnaforaEntity) -> tuple[int, int]:
+        def __span(anafora_entity: AnaforaEntity) -> tuple[int, int]:
             return anafora_entity.span
 
-        ordered_entities = sorted(entities, key=span)
+        ordered_entities = sorted(entities, key=__span)
         # Anafora XML starts from 1 not 0
         for anafora_id, anafora_entity in enumerate(ordered_entities, start=1):
             anafora_entity.set_id(anafora_id)

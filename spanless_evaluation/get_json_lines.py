@@ -60,9 +60,19 @@ def __build_medication_dictionary_from_anafora(
     }
 
 
+def __deserialize(s: str) -> str:
+    return (
+        s.replace("<cn>", "\n")
+        .replace("<cr>", "\r")
+        .replace("<ct>", "\t")
+        .replace("<cf>", "\f")
+    )
+
+
 def __build_medication_dictionary_from_tsv(
     row: pd.Series,
 ) -> dict[str, str | int | bool]:
+    print(row)
     if len(row.medication) == 0:
         logger.warning(f"Empty medication found in {row.filename}")
     return {

@@ -101,9 +101,9 @@ def __process(
             .apply(__local_section_hash, axis=1)
             .to_list()
         )
-        fixed_frames_sections = set(
-            fixed_shard_frame.apply(__local_section_hash, axis=1).to_list()
-        )
+        # fixed_frames_sections = set(
+        #     fixed_shard_frame.apply(__local_section_hash, axis=1).to_list()
+        # )
 
         # original_frames_sections = (
         #     set(

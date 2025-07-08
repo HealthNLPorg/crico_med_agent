@@ -367,9 +367,9 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
                 row, {"instruction", "condition", "dosage", "frequency"}
             )
         else:
-            assert (
-                xml_cf_dict == json_cf_dict
-            ), f"Disagreement at hallucination level but not text level for JSON {json_dict} and XML {xml_dict}"
+            assert xml_cf_dict == json_cf_dict, (
+                f"Disagreement at hallucination level but not text level for JSON {json_dict} and XML {xml_dict}"
+            )
             if all(xml_cf_dict.values()):
                 logger.info(
                     "JSON and XML agree and are both entirely hallucinatory - dumping instance"
