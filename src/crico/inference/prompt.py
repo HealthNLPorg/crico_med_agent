@@ -10,7 +10,7 @@ from typing import Callable, Iterable, cast
 
 import pandas as pd
 from datasets import Dataset, load_dataset
-from text_engineering import deserialize_whitespace, serialize_whitespace
+from utils import deserialize_whitespace, serialize_whitespace
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from utils import basename_no_ext, mkdir
 
