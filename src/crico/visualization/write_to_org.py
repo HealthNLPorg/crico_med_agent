@@ -7,7 +7,7 @@ import re
 import textwrap
 from ast import literal_eval
 from typing import Iterable, cast
-
+from ..utils import deserialize_whitespace
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -25,15 +25,6 @@ parser.add_argument(
 parser.add_argument("--output_dir", type=str)
 parser.add_argument("--parse_type", choices=["json", "xml", "xml_first", "json_first"])
 parser.add_argument("--input_sample_column", type=str)
-
-
-def deserialize(s: str) -> str:
-    return (
-        s.replace("<cn>", "\n")
-        .replace("<cr>", "\r")
-        .replace("<ct>", "\t")
-        .replace("<cf>", "\f")
-    )
 
 
 class ParsedSection:
@@ -85,14 +76,16 @@ class ParsedSection:
                 parsed = (
                     "None"
                     if contained is None
-                    else textwrap.fill(deserialize(contained).strip(), width=width)
+                    else textwrap.fill(
+                        deserialize_whitespace(contained).strip(), width=width
+                    )
                 )
             case "json_first":
                 json_raw_parse, xml_raw_parse = [
                     text_body.strip()
                     for text_body in re.split(
                         r"XML\:|JSON\:",
-                        deserialize(literal_eval(self.parse_matter)[0]),
+                        deserialize_whitespace(literal_eval(self.parse_matter)[0]),
                     )
                     if len(text_body.strip()) > 0
                 ]
@@ -112,7 +105,7 @@ class ParsedSection:
                     text_body.strip()
                     for text_body in re.split(
                         r"XML\:|JSON\:",
-                        deserialize(literal_eval(self.parse_matter)[0]),
+                        deserialize_whitespace(literal_eval(self.parse_matter)[0]),
                     )
                     if len(text_body.strip()) > 0
                 ]
@@ -130,7 +123,7 @@ class ParsedSection:
         return (
             f"{base_depth * '*'} {self.section_identifier}:\n"
             f"{(base_depth + 1) * '*'} Input Sample:\n"
-            f"{textwrap.fill(deserialize(self.input_sample), width=width)}\n"
+            f"{textwrap.fill(deserialize_whitespace(self.input_sample), width=width)}\n"
             f"{(base_depth + 1) * '*'} Model Output:\n"
             f"{parsed}\n"
             f"{(base_depth + 1) * '*'} TODO Error Analysis:\n\n\n"

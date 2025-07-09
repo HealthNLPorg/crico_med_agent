@@ -10,7 +10,7 @@ from functools import partial
 from operator import itemgetter
 
 import pandas as pd
-from write_to_org import deserialize
+from ..utils import deserialize_whitespace, serialize_whitespace
 
 logger = logging.getLogger(__name__)
 
@@ -24,17 +24,6 @@ parser.add_argument("--filter_hallucinations", action="store_true")
 # parser.add_argument("--parse_type", choices=["json", "xml", "xml_first", "json_first"])
 
 
-def serialize_whitespace(sample: str | None) -> str:
-    if sample is None:
-        return "None"
-    return (
-        sample.replace("\n", "<cn>")
-        .replace("\t", "<ct>")
-        .replace("\f", "<cf>")
-        .replace("\r", "<cr>")
-    )
-
-
 def field_is_hallucinatory(
     row: pd.Series, ground_truth_column: str, field: str
 ) -> bool:
@@ -45,7 +34,7 @@ def field_is_hallucinatory(
 
 
 def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str]]:
-    model_output = deserialize(literal_eval(serialized_output)[0])
+    model_output = deserialize_whitespace(literal_eval(serialized_output)[0])
     if model_output.strip().lower() == "none":
         return ["None"], ["None"]
     groups = re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output)

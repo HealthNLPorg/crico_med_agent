@@ -11,6 +11,7 @@ from collections import Counter
 from operator import itemgetter
 from functools import partial
 from itertools import groupby
+from ..utils import deserialize_whitespace
 from lxml.etree import (
     _Element,
 )
@@ -349,19 +350,9 @@ def get_local_spans_from_json(
             yield attr, begin, end
 
 
-# copied from ../visualization/write_to_org.py
-def deserialize(s: str) -> str:
-    return (
-        s.replace("<cn>", "\n")
-        .replace("<cr>", "\r")
-        .replace("<ct>", "\t")
-        .replace("<cf>", "\f")
-    )
-
-
 # copied from ../visualization/write_to_survey.py
 def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str]]:
-    model_output = deserialize(literal_eval(serialized_output)[0])
+    model_output = deserialize_whitespace(literal_eval(serialized_output)[0])
     if model_output.strip().lower() == "none":
         return ["None"], ["None"]
     groups = re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output)
