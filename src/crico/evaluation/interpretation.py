@@ -11,14 +11,14 @@ from collections import Counter
 from operator import itemgetter
 from functools import partial
 from itertools import groupby
-from ..utils import deserialize_whitespace
+from ..utils import parse_serialized_output, basename_no_ext, mkdir
 from lxml.etree import (
     _Element,
 )
 from lxml import etree
 import numpy as np
 import pandas as pd
-from anafora_data import (
+from .anafora_data import (
     AnaforaDocument,
     Instruction,
     InstructionCondition,
@@ -27,7 +27,6 @@ from anafora_data import (
     Medication,
     MedicationAttribute,
 )
-from utils import basename_no_ext, mkdir
 
 DATA_SPACES = ["anafora_xml", "agent_1_output", "agent_2_output", "json_lines"]
 logger = logging.getLogger(__name__)
@@ -144,6 +143,8 @@ def __file_to_merged_dictionaries(
 def __build_medication_dictionary_from_tsv(
     row: pd.Series,
 ) -> dict[str, str | int | bool]:
+    # a lot of this will be copied from
+    # to_anafora_file
     print(row)
     if len(row.medication) == 0:
         logger.warning(f"Empty medication found in {row.filename}")
@@ -262,6 +263,33 @@ def to_anafora_files(
         to_anafora_file(base_fn, fn_frame, output_dir, get_differences)
 
 
+def contains_tags(tag_core: str, target: str) -> bool:
+    open_tag = f"<{tag_core}>"
+    close_tag = f"</{tag_core}>"
+    return open_tag in target and close_tag in target
+
+
+def retain_subframe_with_validated_windows(
+    fn_frame: pd.DataFrame,
+) -> pd.DataFrame:
+    contains_med_tags = partial(contains_tags, "medication")
+    fn_frame = fn_frame.loc[fn_frame["window_text"].map(contains_med_tags)]
+    return fn_frame
+
+
+def unfold_frame(
+    fn_frame: pd.DataFrame,
+) -> pd.DataFrame:
+    fn_frame["medication"] = fn_frame["window_text"].map(get_medication_text)
+    fn_frame["combined"] = fn_frame["serialized_output"].map(parse_serialized_output)
+    fn_frame["JSON"] = fn_frame["combined"].map(itemgetter(0))
+    fn_frame["XML"] = fn_frame["combined"].map(itemgetter(1))
+    fn_frame.drop(columns=["combined", "serialized_output"], inplace=True)
+    fn_frame["JSON"] = fn_frame.apply(select_json, axis=1)
+    fn_frame["XML"] = fn_frame.apply(select_xml, axis=1)
+    return fn_frame
+
+
 def to_anafora_file(
     base_fn: str, fn_frame: pd.DataFrame, output_dir: str, get_differences: bool
 ) -> None:
@@ -270,20 +298,8 @@ def to_anafora_file(
         get_medication_anafora_annotation, axis=1
     ).to_list()
 
-    def contains_tags(tag_core: str, target: str) -> bool:
-        open_tag = f"<{tag_core}>"
-        close_tag = f"</{tag_core}>"
-        return open_tag in target and close_tag in target
-
-    contains_med_tags = partial(contains_tags, "medication")
-    fn_frame = fn_frame.loc[fn_frame["window_text"].map(contains_med_tags)]
-    fn_frame["medication"] = fn_frame["window_text"].map(get_medication_text)
-    fn_frame["combined"] = fn_frame["serialized_output"].map(parse_serialized_output)
-    fn_frame["JSON"] = fn_frame["combined"].map(itemgetter(0))
-    fn_frame["XML"] = fn_frame["combined"].map(itemgetter(1))
-    fn_frame.drop(columns=["combined", "serialized_output"], inplace=True)
-    fn_frame["JSON"] = fn_frame.apply(select_json, axis=1)
-    fn_frame["XML"] = fn_frame.apply(select_xml, axis=1)
+    fn_frame = retain_subframe_with_validated_windows(fn_frame)
+    fn_frame = unfold_frame(fn_frame)
     attr_lists: list[list[MedicationAttribute]] = fn_frame.apply(
         parse_attributes, axis=1
     ).to_list()
@@ -348,25 +364,6 @@ def get_local_spans_from_json(
         for match_span in get_matches(occurence_count, window_text):
             begin, end = match_span
             yield attr, begin, end
-
-
-# copied from ../visualization/write_to_survey.py
-def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str]]:
-    model_output = deserialize_whitespace(literal_eval(serialized_output)[0])
-    if model_output.strip().lower() == "none":
-        return ["None"], ["None"]
-    groups = re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output)
-    json_raw_parses = [
-        parse_group[5:].strip()
-        for parse_group in groups
-        if parse_group.strip().lower().startswith("json:")
-    ]
-    xml_raw_parses = [
-        parse_group[4:].strip()
-        for parse_group in groups
-        if parse_group.strip().lower().startswith("xml:")
-    ]
-    return json_raw_parses, xml_raw_parses
 
 
 def get_tagged_bodies(xml_tag: str, window_text: str) -> list[str]:

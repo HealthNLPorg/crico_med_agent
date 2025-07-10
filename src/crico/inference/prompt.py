@@ -10,9 +10,8 @@ from typing import Callable, Iterable, cast
 
 import pandas as pd
 from datasets import Dataset, load_dataset
-from utils import deserialize_whitespace, serialize_whitespace
+from ..utils import deserialize_whitespace, serialize_whitespace, basename_no_ext, mkdir
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
-from utils import basename_no_ext, mkdir
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(

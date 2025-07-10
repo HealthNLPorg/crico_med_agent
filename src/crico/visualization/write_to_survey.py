@@ -4,13 +4,12 @@ import logging
 import os
 import pathlib
 import re
-from ast import literal_eval
 from itertools import chain
 from functools import partial
 from operator import itemgetter
 
 import pandas as pd
-from ..utils import deserialize_whitespace, serialize_whitespace
+from ..utils import serialize_whitespace, parse_serialized_output
 
 logger = logging.getLogger(__name__)
 
@@ -31,24 +30,6 @@ def field_is_hallucinatory(
         return sample.strip().lower()
 
     return normalize_str(row[field]) in normalize_str(row[ground_truth_column])
-
-
-def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str]]:
-    model_output = deserialize_whitespace(literal_eval(serialized_output)[0])
-    if model_output.strip().lower() == "none":
-        return ["None"], ["None"]
-    groups = re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output)
-    json_raw_parses = [
-        parse_group[5:].strip()
-        for parse_group in groups
-        if parse_group.strip().lower().startswith("json:")
-    ]
-    xml_raw_parses = [
-        parse_group[4:].strip()
-        for parse_group in groups
-        if parse_group.strip().lower().startswith("xml:")
-    ]
-    return json_raw_parses, xml_raw_parses
 
 
 def parse_key_from_json(key: str, json_str) -> str:
