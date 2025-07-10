@@ -8,7 +8,7 @@ from itertools import chain, islice
 from typing import cast, Any
 from collections.abc import Iterable
 from collections import Counter
-from operator import itemgetter
+from operator import itemgetter, attrgetter
 from functools import partial
 from itertools import groupby
 from ..utils import parse_serialized_output, basename_no_ext, mkdir
@@ -203,17 +203,43 @@ def agent_2_to_json_lines(
     with open(out_path, mode="wt", encoding="utf-8") as f:
         for fn, fn_frame in corpus_frame.groupby(["filename"]):
             (base_fn,) = cast(tuple[str,], fn)
-            medication_dictionary = __build_medication_dictionary_from_file_frame(
+            for (
+                medication_dictionary
+            ) in __build_medication_dictionaries_from_file_frame(
                 base_fn, fn_frame, output_dir, get_differences
-            )
-            f.write(__get_med_json_line(medication_dictionary))
+            ):
+                f.write(__get_med_json_line(medication_dictionary))
 
 
-def __build_medication_dictionary_from_file_frame(
+def __build_medication_dictionaries_from_file_frame(
     base_fn: str, fn_frame: pd.DataFrame, output_dir: str, get_differences: bool
-) -> dict[str, str | int | bool]:
-    fn_frame = retain_subframe_with_validated_windows(fn_frame)
-    fn_frame = unfold_frame(fn_frame)
+) -> Iterable[dict[str, str | int | bool]]:
+    medications, _ = get_medications_aligned_with_attributes(fn_frame)
+
+    def __normalize_med_text(medication: Medication) -> str:
+        return medication.get_text().strip().lower()
+
+    sorted_medications = sorted(medications, key=__normalize_med_text)
+
+    def __cluster_has_at_least_one_of_attr_name(
+        med_cluster_ls: list[Medication], attr_name: str
+    ) -> bool:
+        return any(map(len, map(attrgetter(attr_name), med_cluster_ls)))
+
+    for normalized_med_text, same_med_cluster_iter in groupby(
+        sorted_medications, key=__normalize_med_text
+    ):
+        same_med_cluster_ls = list(same_med_cluster_iter)
+        yield {
+            "study_id": base_fn,  # TODO - verify that this works or maybe we should just normalize to the number
+            "medication": normalized_med_text,
+            "has_at_least_one_instruction": __cluster_has_at_least_one_of_attr_name(
+                same_med_cluster_ls, "instruction"
+            ),
+            "has_at_least_one_condition": __cluster_has_at_least_one_of_attr_name(
+                same_med_cluster_ls, "condition"
+            ),
+        }
 
 
 def anafora_to_json_lines(
@@ -287,11 +313,9 @@ def unfold_frame(
     return fn_frame
 
 
-def to_anafora_file(
-    base_fn: str, fn_frame: pd.DataFrame, output_dir: str, get_differences: bool
-) -> None:
-    fn_anafora_document = AnaforaDocument(filename=base_fn)
-
+def get_medications_aligned_with_attributes(
+    fn_frame: pd.DataFrame,
+) -> tuple[list[Medication], list[MedicationAttribute]]:
     fn_frame = retain_subframe_with_validated_windows(fn_frame)
     fn_frame = unfold_frame(fn_frame)
     medications: list[Medication] = fn_frame.apply(
@@ -302,6 +326,14 @@ def to_anafora_file(
     ).to_list()
     for medication, attr_list in zip(medications, attr_lists):
         medication.set_attributes(attr_list)
+    return medications, attr_lists
+
+
+def to_anafora_file(
+    base_fn: str, fn_frame: pd.DataFrame, output_dir: str, get_differences: bool
+) -> None:
+    medications, attr_lists = get_medications_aligned_with_attributes(fn_frame)
+    fn_anafora_document = AnaforaDocument(filename=base_fn)
     fn_anafora_document.set_entities(
         chain(
             medications,
@@ -511,7 +543,7 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
             xml_cf_dict
         ) and parse_has_no_total_hallucinations(json_cf_dict):
             logger.info("JSON and XML agree and are entirely non-hallucinatory")
-            return get_med_attrs_from_xml(
+            return get_medication_attributes_from_xml(
                 row, {"instruction", "condition", "dosage", "frequency"}
             )
         else:
@@ -527,7 +559,7 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
                 logger.info(
                     "JSON and XML agree and are partially hallucinatory - defaulting to non-hallucinatory JSON for cleaner parsing"
                 )
-                return get_med_attrs_from_json(
+                return get_medication_attributes_from_json(
                     row,
                     filter_hallucinatory(
                         occurence_dict=json_dict, cf_dict=json_cf_dict
@@ -536,7 +568,7 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
     else:
         if parse_has_no_total_hallucinations(xml_cf_dict):
             logger.info("JSON and XML disagree - XML is non-hallucinatory")
-            return get_med_attrs_from_xml(
+            return get_medication_attributes_from_xml(
                 row, {"instruction", "condition", "dosage", "frequency"}
             )
         elif parse_is_all_total_hallucinations(
@@ -550,7 +582,7 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
             logger.info(
                 "JSON and XML disagree and XML is partially hallucinatory - defaulting to non-hallucinatory JSON for cleaner parsing"
             )
-            return get_med_attrs_from_json(
+            return get_medication_attributes_from_json(
                 row,
                 filter_hallucinatory(occurence_dict=json_dict, cf_dict=json_cf_dict),
             )
@@ -577,7 +609,7 @@ def build_medication_attribute(
             return None
 
 
-def get_med_attrs_from_xml(
+def get_medication_attributes_from_xml(
     row: pd.Series, attrs: set[str]
 ) -> list[MedicationAttribute]:
     filename = row["filename"]
@@ -601,7 +633,7 @@ def get_med_attrs_from_xml(
     return result
 
 
-def get_med_attrs_from_json(
+def get_medication_attributes_from_json(
     row: pd.Series,
     json_dict: dict[str, Counter[str]],
 ) -> list[MedicationAttribute]:
