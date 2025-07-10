@@ -231,9 +231,14 @@ def anafora_to_json_lines(
 
 
 def get_medication_anafora_annotation(row: pd.Series) -> Medication:
+    # incorrect name (will need to double check but)
+    # the medication offsets are actually document/CAS level
+    # since they define the window
     cas_level_span = literal_eval(row["medication_local_offsets"])
     filename = row["filename"]
-    medication = Medication(span=cas_level_span, filename=filename)
+    medication = Medication(
+        span=cas_level_span, filename=filename, text=row["medication"]
+    )
     medication.set_cui_str(row.get("cuis", ""))
     medication.set_tui_str(row.get("tuis", ""))
     return medication
@@ -286,12 +291,12 @@ def to_anafora_file(
     base_fn: str, fn_frame: pd.DataFrame, output_dir: str, get_differences: bool
 ) -> None:
     fn_anafora_document = AnaforaDocument(filename=base_fn)
-    medications: list[Medication] = fn_frame.apply(
-        get_medication_anafora_annotation, axis=1
-    ).to_list()
 
     fn_frame = retain_subframe_with_validated_windows(fn_frame)
     fn_frame = unfold_frame(fn_frame)
+    medications: list[Medication] = fn_frame.apply(
+        get_medication_anafora_annotation, axis=1
+    ).to_list()
     attr_lists: list[list[MedicationAttribute]] = fn_frame.apply(
         parse_attributes, axis=1
     ).to_list()
@@ -506,7 +511,7 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
             xml_cf_dict
         ) and parse_has_no_total_hallucinations(json_cf_dict):
             logger.info("JSON and XML agree and are entirely non-hallucinatory")
-            return get_spans_from_xml(
+            return get_med_attrs_from_xml(
                 row, {"instruction", "condition", "dosage", "frequency"}
             )
         else:
@@ -522,7 +527,7 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
                 logger.info(
                     "JSON and XML agree and are partially hallucinatory - defaulting to non-hallucinatory JSON for cleaner parsing"
                 )
-                return get_spans_from_json(
+                return get_med_attrs_from_json(
                     row,
                     filter_hallucinatory(
                         occurence_dict=json_dict, cf_dict=json_cf_dict
@@ -531,7 +536,7 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
     else:
         if parse_has_no_total_hallucinations(xml_cf_dict):
             logger.info("JSON and XML disagree - XML is non-hallucinatory")
-            return get_spans_from_xml(
+            return get_med_attrs_from_xml(
                 row, {"instruction", "condition", "dosage", "frequency"}
             )
         elif parse_is_all_total_hallucinations(
@@ -545,7 +550,7 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
             logger.info(
                 "JSON and XML disagree and XML is partially hallucinatory - defaulting to non-hallucinatory JSON for cleaner parsing"
             )
-            return get_spans_from_json(
+            return get_med_attrs_from_json(
                 row,
                 filter_hallucinatory(occurence_dict=json_dict, cf_dict=json_cf_dict),
             )
@@ -572,7 +577,9 @@ def build_medication_attribute(
             return None
 
 
-def get_spans_from_xml(row: pd.Series, attrs: set[str]) -> list[MedicationAttribute]:
+def get_med_attrs_from_xml(
+    row: pd.Series, attrs: set[str]
+) -> list[MedicationAttribute]:
     filename = row["filename"]
     local_spans = get_local_spans_from_xml(
         # row["result"],
@@ -594,7 +601,7 @@ def get_spans_from_xml(row: pd.Series, attrs: set[str]) -> list[MedicationAttrib
     return result
 
 
-def get_spans_from_json(
+def get_med_attrs_from_json(
     row: pd.Series,
     json_dict: dict[str, Counter[str]],
 ) -> list[MedicationAttribute]:
