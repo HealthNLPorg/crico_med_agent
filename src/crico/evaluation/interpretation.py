@@ -140,22 +140,6 @@ def __file_to_merged_dictionaries(
         }
 
 
-def __build_medication_dictionary_from_tsv(
-    row: pd.Series,
-) -> dict[str, str | int | bool]:
-    # a lot of this will be copied from
-    # to_anafora_file
-    print(row)
-    if len(row.medication) == 0:
-        logger.warning(f"Empty medication found in {row.filename}")
-    return {
-        "study_id": int(row.filename.split("_")[-1]),
-        "medication": row.medication.strip().lower(),
-        "has_at_least_one_instruction": len(row.instruction) > 0,
-        "has_at_least_one_condition": len(row.condition) > 0,
-    }
-
-
 def __build_medication_dictionary_from_anafora(
     note_text: str,
     medication_annotation: _Element,
@@ -210,18 +194,26 @@ def __dir_to_dictionaries(
 
 
 def agent_2_to_json_lines(
-    input_tsv: str,
-    output_dir: str,
+    input_tsv: str, output_dir: str, get_differences: bool = False
 ) -> None:
-    df = pd.read_csv(input_tsv, sep="\t").fillna("")
+    corpus_frame = pd.read_csv(input_tsv, sep="\t").fillna("")
 
     out_path = os.path.join(output_dir, f"{os.path.basename(input_tsv)}.jsonl")
 
     with open(out_path, mode="wt", encoding="utf-8") as f:
-        for medication_dictionary in df.apply(
-            __build_medication_dictionary_from_tsv, axis=1
-        ):
+        for fn, fn_frame in corpus_frame.groupby(["filename"]):
+            (base_fn,) = cast(tuple[str,], fn)
+            medication_dictionary = __build_medication_dictionary_from_file_frame(
+                base_fn, fn_frame, output_dir, get_differences
+            )
             f.write(__get_med_json_line(medication_dictionary))
+
+
+def __build_medication_dictionary_from_file_frame(
+    base_fn: str, fn_frame: pd.DataFrame, output_dir: str, get_differences: bool
+) -> dict[str, str | int | bool]:
+    fn_frame = retain_subframe_with_validated_windows(fn_frame)
+    fn_frame = unfold_frame(fn_frame)
 
 
 def anafora_to_json_lines(

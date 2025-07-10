@@ -34,12 +34,20 @@ def timestamp() -> str:
 
 class AnaforaEntity:
     def __init__(
-        self, span: tuple[int, int], filename: str, annotator: str = "llama"
+        self,
+        span: tuple[int, int],
+        filename: str,
+        text: str | None = None,
+        annotator: str = "llama",
     ) -> None:
         self.anafora_id = -1
         self.span = span
         self.filename = filename
+        self.text = text
         self.annotator = annotator
+
+    def get_text(self) -> str | None:
+        return self.text
 
     def get_id_str(self) -> str:
         return (
