@@ -6,9 +6,12 @@ import pathlib
 import re
 import textwrap
 from ast import literal_eval
-from typing import Iterable, cast
-from ..utils import deserialize_whitespace
+from collections.abc import Iterable
+from typing import cast
+
 import pandas as pd
+
+from ..utils import deserialize_whitespace
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +69,7 @@ class ParsedSection:
                 )
                 parsed = (
                     "\n".join(
-                        (mention_to_str(mention_dict) for mention_dict in json_output)
+                        mention_to_str(mention_dict) for mention_dict in json_output
                     )
                     if len(json_output) > 0
                     else "None"

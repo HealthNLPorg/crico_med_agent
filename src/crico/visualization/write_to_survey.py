@@ -4,12 +4,13 @@ import logging
 import os
 import pathlib
 import re
-from itertools import chain
 from functools import partial
+from itertools import chain
 from operator import itemgetter
 
 import pandas as pd
-from ..utils import serialize_whitespace, parse_serialized_output
+
+from ..utils import parse_serialized_output, serialize_whitespace
 
 logger = logging.getLogger(__name__)
 

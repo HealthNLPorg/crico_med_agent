@@ -4,14 +4,16 @@ import logging
 import os
 import pathlib
 import re
+from collections.abc import Callable, Iterable
 from itertools import chain
 from time import time
-from typing import Callable, Iterable, cast
+from typing import cast
 
 import pandas as pd
 from datasets import Dataset, load_dataset
-from ..utils import deserialize_whitespace, serialize_whitespace, basename_no_ext, mkdir
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+
+from ..utils import basename_no_ext, deserialize_whitespace, mkdir, serialize_whitespace
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(
@@ -293,7 +295,7 @@ def insert_mentions(sample: dict) -> dict:
 
 
 def get_system_prompt(prompt_file_path: str) -> str:
-    with open(prompt_file_path, mode="rt", encoding="utf-8") as f:
+    with open(prompt_file_path, encoding="utf-8") as f:
         raw_prompt = f.read()
     return raw_prompt
 
@@ -320,7 +322,7 @@ def get_query_dataset(queries_file_path: str) -> Dataset:
 
             queries = Dataset.from_generator(with_whitespace)
         case ".txt" | "":
-            with open(queries_file_path, mode="rt") as qf:
+            with open(queries_file_path) as qf:
                 query = qf.read()
             queries = Dataset.from_list([{"text": query}])
         case _:
@@ -363,7 +365,7 @@ def parse_input_output(examples_file_path: str) -> list[tuple[str, str]]:
         assert len(result) == 2
         return result
 
-    with open(examples_file_path, mode="rt", encoding="utf-8") as ef:
+    with open(examples_file_path, encoding="utf-8") as ef:
         no_comments_str = "".join(
             line for line in ef.readlines() if not line.strip().startswith("#")
         )
@@ -378,7 +380,7 @@ def parse_input_output(examples_file_path: str) -> list[tuple[str, str]]:
 def get_document_level_example(
     sample_document_path: str, sample_answer_path: str
 ) -> tuple[str, str]:
-    with open(sample_document_path, mode="rt", encoding="utf-8") as sample_document:
+    with open(sample_document_path, encoding="utf-8") as sample_document:
         # not normalizing newlines since those might be useful
         query = sample_document.read()
     sample_answer_dataframe = pd.read_csv(sample_answer_path, sep="\t")

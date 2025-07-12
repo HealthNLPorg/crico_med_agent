@@ -3,9 +3,11 @@ import logging
 import os
 import re
 from ast import literal_eval
-from typing import Iterable
-from ..utils import deserialize_whitespace
+from collections.abc import Iterable
+
 import pandas as pd
+
+from ..utils import deserialize_whitespace
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument(

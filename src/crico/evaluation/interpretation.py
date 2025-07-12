@@ -1,29 +1,30 @@
 import argparse
-import os
-import re
 import json
 import logging
+import os
+import re
 from ast import literal_eval
-from itertools import chain, islice
-from typing import cast, Any
-from collections.abc import Iterable
 from collections import Counter
-from operator import itemgetter, attrgetter
+from collections.abc import Iterable
 from functools import partial
-from itertools import groupby
-from ..utils import parse_serialized_output, basename_no_ext, mkdir
+from itertools import chain, groupby, islice
+from operator import attrgetter, itemgetter
+from typing import Any, cast
+
+import numpy as np
+import pandas as pd
+from lxml import etree
 from lxml.etree import (
     _Element,
 )
-from lxml import etree
-import numpy as np
-import pandas as pd
+
+from ..utils import basename_no_ext, mkdir, parse_serialized_output
 from .anafora_data import (
     AnaforaDocument,
-    Instruction,
-    InstructionCondition,
     Dosage,
     Frequency,
+    Instruction,
+    InstructionCondition,
     Medication,
     MedicationAttribute,
 )
@@ -100,7 +101,7 @@ def __file_to_unmerged_dictionaries(
     with open(xml_path, mode="rb") as xml_f:
         anafora_xml = etree.fromstring(xml_f.read())
 
-    with open(note_path, mode="rt") as note_f:
+    with open(note_path) as note_f:
         note_text = note_f.read()
 
     __local_med_dict = partial(
@@ -200,7 +201,7 @@ def agent_2_to_json_lines(
 
     out_path = os.path.join(output_dir, f"{os.path.basename(input_tsv)}.jsonl")
 
-    with open(out_path, mode="wt", encoding="utf-8") as f:
+    with open(out_path, mode="w", encoding="utf-8") as f:
         for fn, fn_frame in corpus_frame.groupby(["filename"]):
             (base_fn,) = cast(tuple[str,], fn)
             for (
@@ -215,6 +216,7 @@ def __build_medication_dictionaries_from_file_frame(
     base_fn: str, fn_frame: pd.DataFrame, output_dir: str, get_differences: bool
 ) -> Iterable[dict[str, str | int | bool]]:
     medications, _ = get_medications_aligned_with_attributes(fn_frame)
+    study_id_number = int(base_fn.split("_")[-1])
 
     def __normalize_med_text(medication: Medication) -> str:
         return medication.get_text().strip().lower()
@@ -231,13 +233,13 @@ def __build_medication_dictionaries_from_file_frame(
     ):
         same_med_cluster_ls = list(same_med_cluster_iter)
         yield {
-            "study_id": base_fn,  # TODO - verify that this works or maybe we should just normalize to the number
+            "study_id": study_id_number,
             "medication": normalized_med_text,
             "has_at_least_one_instruction": __cluster_has_at_least_one_of_attr_name(
-                same_med_cluster_ls, "instruction"
+                same_med_cluster_ls, "instructions"
             ),
             "has_at_least_one_condition": __cluster_has_at_least_one_of_attr_name(
-                same_med_cluster_ls, "condition"
+                same_med_cluster_ls, "instruction_conditions"
             ),
         }
 
@@ -251,7 +253,7 @@ def anafora_to_json_lines(
     base_folder_name = os.path.basename(paired_anafora_dir.rstrip("/"))
     out_path = os.path.join(output_dir, f"{base_folder_name}.jsonl")
 
-    with open(out_path, mode="wt", encoding="utf-8") as f:
+    with open(out_path, mode="w", encoding="utf-8") as f:
         for medication_dictionary in __dir_to_dictionaries(paired_anafora_dir):
             f.write(__get_med_json_line(medication_dictionary))
 

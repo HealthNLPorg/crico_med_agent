@@ -1,7 +1,7 @@
 import datetime
 import os
+from collections.abc import Iterable
 from enum import Enum
-from typing import Iterable
 
 import pytz
 from lxml import etree
@@ -131,8 +131,8 @@ MedicationAttribute = Dosage | Frequency | Instruction | InstructionCondition
 
 
 class Medication(AnaforaEntity):
-    def __init__(self, span: tuple[int, int], filename: str) -> None:
-        super().__init__(span, filename)
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         self.instruction_conditions: list[InstructionCondition] = []
         self.instructions: list[Instruction] = []
         self.frequencies: list[Frequency] = []

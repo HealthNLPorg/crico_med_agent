@@ -1,11 +1,10 @@
-import logging
 import argparse
 import json
+import logging
 from collections.abc import Iterable
-from operator import itemgetter
 from itertools import groupby
+from operator import itemgetter
 from typing import cast
-
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +56,7 @@ def __get_type_level_scores(
 
 
 def __load_med_dicts(jsonl_path: str) -> Iterable[MedDict]:
-    with open(jsonl_path, mode="rt", encoding="utf-8") as f:
+    with open(jsonl_path, encoding="utf-8") as f:
         for line in f:
             yield json.loads(line)
 
@@ -75,8 +74,7 @@ def __shared_med_dicts(
         d_ls_1_matches = list(__med_matches(d_ls_1, {med}))
         d_ls_2_matches = list(__med_matches(d_ls_2, {med}))
         assert len(d_ls_1_matches) == len(d_ls_2_matches) == 1
-        for d_1, d_2 in zip(d_ls_1_matches, d_ls_2_matches):
-            yield d_1, d_2
+        yield from zip(d_ls_1_matches, d_ls_2_matches)
 
 
 def __attr_confusion_mattrix(

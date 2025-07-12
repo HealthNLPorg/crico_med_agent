@@ -41,7 +41,7 @@ def parse_input_output(examples_file_path: str) -> list[tuple[str, str]]:
         assert len(result) == 2
         return result
 
-    with open(examples_file_path, mode="rt", encoding="utf-8") as ef:
+    with open(examples_file_path, encoding="utf-8") as ef:
         no_comments_str = "".join(
             line for line in ef.readlines() if not line.strip().startswith("#")
         )
