@@ -1,0 +1,99 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crico"
+dynamic = ["version"]
+authors = [
+    { name = "Health NLP Lab @ CHIP" },
+]
+description = "Clinical Document Type Classification via fastText"
+
+readme = "README.md"
+requires-python = ">=3.10"
+# dependencies = [
+#     "pandas>=2.0.0",
+#     "tika",
+#     "tabulate",
+#     "lxml",
+#     "more-itertools",
+#     "bs4",
+#     "fasttext @ git+https://github.com/facebookresearch/fastText.git"
+# ]
+
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: Apache Software License",
+]
+
+[project.urls]
+Homepage = "https://github.com/Machine-Learning-for-Medical-Language/document-type/"
+"Bug Tracker" = "https://github.com/Machine-Learning-for-Medical-Language/document-type/issues"
+
+[tool.setuptools_scm]
+fallback_version = "0.1.0"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["crico*"]
+
+[dependency-groups]
+lint = [
+    "ruff==0.7.0", # same as in pre-commit hooks
+]
+build = ["build", "pip>=21.3", "twine"]
+test = ["pytest"]
+docs = ["sphinx", "sphinx-autodoc-typehints", "sphinx-rtd-theme", "sphobjinv"]
+dev = [
+    { include-group = "build" },
+    { include-group = "docs" },
+    { include-group = "lint" },
+    { include-group = "test" },
+    "pre-commit",
+]
+
+[project.scripts]
+"doctype" = "doctype.run_experiments:main"
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    # ruff defaults
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    # additional options
+    "I",   # isort
+    "UP",  # pyupgrade
+    "G",   # logging
+    "FA",  # future annotations
+    "PIE", # misc
+]
+
+ignore = [
+    "G004", # f-strings in logging statements
+]
+
+[tool.ruff.lint.pyupgrade]
+# Preserve Union types, despite alternate 'X | Y' syntax being available via __future__ annotations module.
+# This is necessary because fastAPI and pydantic parse type annotations at runtime, and since the new syntax is
+# a python 3.10 feature they don't expect it in python 3.9.
+# This can be removed if/when we stop supporting python 3.9.
+keep-runtime-typing = true
+
+# [tool.uv]
+# cache-keys = [{ git = { commit = true, tags = true } }]
+[tool.pyrefly]
+project_includes = ["**/*"]
+project_excludes = [
+    "**/.[!/.]*",
+    "**/*venv/**/*",
+]
