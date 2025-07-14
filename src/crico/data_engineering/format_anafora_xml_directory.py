@@ -22,7 +22,7 @@ logging.basicConfig(
 def make_new_directory_and_copy_file(
     input_folder: str, output_folder: str, fn: str
 ) -> None:
-    anafora_identifier = basename_no_ext(fn)
+    anafora_identifier = basename_no_ext(fn).split(".")[0]
     identifier_dir = os.path.join(output_folder, anafora_identifier)
     mkdir(identifier_dir)
     source_file_path = os.path.join(input_folder, fn)
