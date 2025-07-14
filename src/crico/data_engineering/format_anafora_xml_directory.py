@@ -1,5 +1,9 @@
 import argparse
 import logging
+import os
+import shutil
+
+from ..utils import basename_no_ext, mkdir
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument("--input_folder", type=str)
@@ -18,7 +22,19 @@ def reshape(
     input_folder: str,
     output_folder: str,
 ) -> None:
-    pass
+    def is_xml(fn: str) -> bool:
+        return fn.lower().strip().endswith("xml")
+
+    def make_new_directory_and_copy_file(fn: str) -> None:
+        anafora_identifier = basename_no_ext(fn)
+        identifier_dir = os.path.join(output_folder, anafora_identifier)
+        mkdir(identifier_dir)
+        source_file_path = os.path.join(input_folder, fn)
+        dest_file_path = os.path.join(identifier_dir, fn)
+        shutil.copyfile(source_file_path, dest_file_path)
+
+    for xml_fn in filter(is_xml, os.listdir(input_folder)):
+        make_new_directory_and_copy_file(xml_fn)
 
 
 def main() -> None:
