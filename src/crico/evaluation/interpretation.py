@@ -232,6 +232,11 @@ def __build_medication_dictionaries_from_file_frame(
         sorted_medications, key=__normalize_med_text
     ):
         same_med_cluster_ls = list(same_med_cluster_iter)
+        # NB, these keys don't match those in
+        # build_medication_attribute (currently line 600),
+        # but that's bc of the attribute
+        # names in the Medication class
+        # in ./anafora_data.py
         yield {
             "study_id": study_id_number,
             "medication": normalized_med_text,
@@ -721,8 +726,10 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         token_index_ls = [token.span() for token in re.finditer(r"\S+", section_body)]
 
         def match_to_window(med_match) -> tuple[tuple[int, int], tuple[int, int], str]:
+            # TODO - these aren't updated with the CAS span!!!
             med_begin, med_end = med_match.span()
             med_central_index = get_central_index(med_begin, token_index_ls)
+            # TODO - ditto!!!!
             window_begin = token_index_ls[max(0, med_central_index - WINDOW_RADIUS)][0]
             window_end = token_index_ls[
                 min(len(token_index_ls) - 1, med_central_index + WINDOW_RADIUS)
