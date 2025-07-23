@@ -258,6 +258,7 @@ def anafora_to_json_lines(
             f.write(__get_med_json_line(medication_dictionary))
 
 
+# TODO - check span adjustment logic
 def get_medication_anafora_annotation(row: pd.Series) -> Medication:
     # incorrect name (will need to double check but)
     # the medication offsets are actually document/CAS level
@@ -345,6 +346,7 @@ def to_anafora_file(
     fn_anafora_document.write_to_dir(output_dir)
 
 
+# TODO - check span adjustment logic
 def get_local_spans_from_xml(
     tagged_str: str, relevant_tags: set[str]
 ) -> Iterable[tuple[str, int, int]]:
@@ -372,6 +374,7 @@ def get_local_spans_from_xml(
         current_begin += step
 
 
+# TODO - check span adjustment logic
 def get_local_spans_from_json(
     window_text: str, json_dict: dict[str, Counter[str]]
 ) -> Iterable[tuple[str, int, int]]:
@@ -590,6 +593,8 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
             )
 
 
+
+# TODO - check span adjustment logic
 def build_medication_attribute(
     filename: str, window_begin: int, attr_type: str, local_begin: int, local_end: int
 ) -> MedicationAttribute | None:
@@ -611,6 +616,7 @@ def build_medication_attribute(
             return None
 
 
+# TODO - check span adjustment logic
 def get_medication_attributes_from_xml(
     row: pd.Series, attrs: set[str]
 ) -> list[MedicationAttribute]:
@@ -635,6 +641,7 @@ def get_medication_attributes_from_xml(
     return result
 
 
+# TODO - check span adjustment logic
 def get_medication_attributes_from_json(
     row: pd.Series,
     json_dict: dict[str, Counter[str]],
