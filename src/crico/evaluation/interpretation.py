@@ -266,15 +266,17 @@ def anafora_to_json_lines(
             f.write(__get_med_json_line(medication_dictionary))
 
 
-# DONE - check span adjustment logic
 def get_medication_anafora_annotation(row: pd.Series) -> Medication:
-    # incorrect name (will need to double check but)
-    # the medication offsets are actually document/CAS level
-    # since they define the window
-    cas_level_span = literal_eval(row["medication_local_offsets"])
+    medication_local_offsets = literal_eval(row["medication_local_offsets"])
+    window_cas_offsets = literal_eval(row["window_cas_offsets"])
+    medication_local_begin, medication_local_end = medication_local_offsets
+    window_cas_begin, window_cas_end = window_cas_offsets
+    medication_cas_begin = medication_local_begin + window_cas_begin
+    medication_cas_end = medication_local_end + window_cas_end
+    medication_cas_offsets = (medication_cas_begin, medication_cas_end)
     filename = row["filename"]
     medication = Medication(
-        span=cas_level_span, filename=filename, text=row["medication"]
+        span=medication_cas_offsets, filename=filename, text=row["medication"]
     )
     medication.set_cui_str(row.get("cuis", ""))
     medication.set_tui_str(row.get("tuis", ""))
