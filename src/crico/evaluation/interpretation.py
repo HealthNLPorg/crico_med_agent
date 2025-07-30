@@ -237,6 +237,9 @@ def __build_medication_dictionaries_from_file_frame(
         # but that's bc of the attribute
         # names in the Medication class
         # in ./anafora_data.py
+        if study_id_number == 121_379 and normalized_med_text == "omeprazole":
+            for med in same_med_cluster_ls:
+                print(str(med))
         yield {
             "study_id": study_id_number,
             "medication": normalized_med_text,
@@ -263,7 +266,7 @@ def anafora_to_json_lines(
             f.write(__get_med_json_line(medication_dictionary))
 
 
-# TODO - check span adjustment logic
+# DONE - check span adjustment logic
 def get_medication_anafora_annotation(row: pd.Series) -> Medication:
     # incorrect name (will need to double check but)
     # the medication offsets are actually document/CAS level
@@ -351,11 +354,16 @@ def to_anafora_file(
     fn_anafora_document.write_to_dir(output_dir)
 
 
-# TODO - check span adjustment logic
+# DONE - check span adjustment logic
 def get_local_spans_from_xml(
-    tagged_str: str, relevant_tags: set[str]
+    tagged_str: str, relevant_tags: set[str], debug_print=True
 ) -> Iterable[tuple[str, int, int]]:
-    tag_or_body = r"[^<>/]+"
+    # tag_or_body = r"[^<>/]+"
+    # DONE - current best solution according to metrics and
+    # parsing behavior from lxml
+    tag_or_body = r"[^<>]+"
+    # tag_or_body = r"[^<]+"
+    # tag_or_body = r".+"
     tag_regexes = {rf"<{tag}>{tag_or_body}</{tag}>" for tag in relevant_tags}
     relevant_tags_capture = rf"({'|'.join(tag_regexes)})"
     tag_and_body_capture = rf"<({tag_or_body})>({tag_or_body})</{tag_or_body}>"
@@ -363,23 +371,31 @@ def get_local_spans_from_xml(
     step = 0
     # TODO - revisit and see if this can be replaced with re.finditer
     # though for now don't fix what isn't broken
-    # TODO - might have to empirically
+    # DONE - might have to empirically
     # confirm this via the anafora visualization
     # code in format-writer
+    # COMMENT found the explanation
     for run in re.split(relevant_tags_capture, tagged_str):
         potential_match = re.search(tag_and_body_capture, run)
         if potential_match is None:
+            # TODO this might need tweaking (probably not)
+            # But if running into issues with spans
+            # try r"</?[^<>]>"
+            # (difference is the internal tag regex matches the earlier one)
             cleaned_run = re.sub(r"</?[^<>/]>", "", run)
             step = len(cleaned_run)
         else:
             tag = potential_match.group(1)
             body = potential_match.group(2)
+            if debug_print:
+                # TODO - need condition for the example
+                logger.info(f"MATCHED - {tag} - {body}")
             step = len(body)
             yield tag, current_begin, current_begin + step
         current_begin += step
 
 
-# TODO - check span adjustment logic
+# DONE - check span adjustment logic
 def get_local_spans_from_json(
     window_text: str, json_dict: dict[str, Counter[str]]
 ) -> Iterable[tuple[str, int, int]]:
@@ -394,10 +410,14 @@ def get_local_spans_from_json(
             yield from strategy(all_matches, count)
 
     def strategy(matches: Iterable[re.Match[str]], count) -> Iterable[tuple[int, int]]:
-        # TODO tweak as necessary - might have to add other information from the row
+        # DONE tweak as necessary - might have to add other information from the row
+        # COMMENT will leave this as it is since the idea might be
+        # useful later even if not for this project
         return map(get_span, islice(matches, count))
 
-    # TODO adapt to cases with multiple values
+    # DONE adapt to cases with multiple values
+    # COMMENT not sure what I meant by the above comment,
+    # but I think this already works how it's supposed to?
     for attr, occurence_count in json_dict.items():
         # for match_span in strategy(map(get_span, re.finditer(body, window_text))):
         for match_span in get_matches(occurence_count, window_text):
@@ -438,6 +458,13 @@ def json_str_to_dict(json_str: str) -> dict[str, Counter[str]]:
     relevant_attributes = {"dosage", "frequency", "instruction", "condition"}
     # TODO - figure out if the one getting lost in the test set is
     # actually a bug
+    # TODO figure out which instance above was the issue
+    # finding out when this question was inserted into the code was:
+    # (base) etg@laptop:~/Repos/CRICO/src/crico/evaluation$ git log -S "# TODO - figure out if the one getting lost in the test set is"
+    # commit 20c866e90b1045096388fb58a35361bd70c12f79
+    # Author: Eli Goldner <etgld@posteo.us>
+    # Date:   Fri May 9 22:46:15 2025 -0400
+    # Working on both dev and test - time to evaluate
     if len(json_str.strip()) == 0:
         return dict()
     try:
@@ -578,9 +605,16 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
     else:
         if parse_has_no_total_hallucinations(xml_cf_dict):
             logger.info("JSON and XML disagree - XML is non-hallucinatory")
-            return get_medication_attributes_from_xml(
+            med_attrs = get_medication_attributes_from_xml(
                 row, {"instruction", "condition", "dosage", "frequency"}
             )
+            # if row["filename"] == "Study_ID_121379" and row["medication"] == "omeprazole":
+            #     print(row)
+            #     print(row["JSON"])
+            #     print(row["XML"])
+            #     for med_attr in med_attrs:
+            #         print(str(med_attr))
+            return med_attrs
         elif parse_is_all_total_hallucinations(
             xml_cf_dict
         ) and parse_is_all_total_hallucinations(json_cf_dict):
@@ -598,8 +632,7 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
             )
 
 
-
-# TODO - check span adjustment logic
+# DONE - check span adjustment logic
 def build_medication_attribute(
     filename: str, window_begin: int, attr_type: str, local_begin: int, local_end: int
 ) -> MedicationAttribute | None:
@@ -621,16 +654,27 @@ def build_medication_attribute(
             return None
 
 
-# TODO - check span adjustment logic
+# DONE - check span adjustment logic
 def get_medication_attributes_from_xml(
     row: pd.Series, attrs: set[str]
 ) -> list[MedicationAttribute]:
     filename = row["filename"]
+    debug_span = False
+    # if row["filename"] == "Study_ID_121379" and row["medication"] in {
+    #     "omeprazole",
+    #     "carafate",
+    #     "avastin",
+    # }:
+    #     print(row)
+    #     print(row["JSON"])
+    #     print(row["XML"])
+    #     debug_span = True
     local_spans = get_local_spans_from_xml(
         # row["result"],
         row["XML"],
         # {"instruction", "instructionCondition"},
         attrs,
+        # debug_print=debug_span,
     )
     window_begin, _ = literal_eval(row["window_cas_offsets"])
 
@@ -646,7 +690,7 @@ def get_medication_attributes_from_xml(
     return result
 
 
-# TODO - check span adjustment logic
+# DONE - check span adjustment logic
 def get_medication_attributes_from_json(
     row: pd.Series,
     json_dict: dict[str, Counter[str]],
@@ -726,10 +770,12 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         token_index_ls = [token.span() for token in re.finditer(r"\S+", section_body)]
 
         def match_to_window(med_match) -> tuple[tuple[int, int], tuple[int, int], str]:
-            # TODO - these aren't updated with the CAS span!!!
+            # TODO - adjust these to document level offsets by using
+            # section offsets
             med_begin, med_end = med_match.span()
             med_central_index = get_central_index(med_begin, token_index_ls)
-            # TODO - ditto!!!!
+            # TODO - adjust these to document level offsets by using
+            # section offsets
             window_begin = token_index_ls[max(0, med_central_index - WINDOW_RADIUS)][0]
             window_end = token_index_ls[
                 min(len(token_index_ls) - 1, med_central_index + WINDOW_RADIUS)
