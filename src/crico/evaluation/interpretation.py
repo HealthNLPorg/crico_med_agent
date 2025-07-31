@@ -267,13 +267,7 @@ def anafora_to_json_lines(
 
 
 def get_medication_anafora_annotation(row: pd.Series) -> Medication:
-    medication_local_offsets = literal_eval(row["medication_local_offsets"])
-    window_cas_offsets = literal_eval(row["window_cas_offsets"])
-    medication_local_begin, medication_local_end = medication_local_offsets
-    window_cas_begin, window_cas_end = window_cas_offsets
-    medication_cas_begin = medication_local_begin + window_cas_begin
-    medication_cas_end = medication_local_end + window_cas_end
-    medication_cas_offsets = (medication_cas_begin, medication_cas_end)
+    medication_cas_offsets = literal_eval(row["medication_cas_offsets"])
     filename = row["filename"]
     medication = Medication(
         span=medication_cas_offsets, filename=filename, text=row["medication"]
@@ -525,6 +519,53 @@ def get_cf_dict(
     }
 
 
+def parse_has_no_total_hallucinations(
+    cf_dict: dict[str, dict[str, ConfusionMatrix]],
+) -> bool:
+    return not any(
+        cf.is_complete_hallucination()
+        for instance_to_cf in cf_dict.values()
+        for cf in instance_to_cf.values()
+    )
+
+
+def parse_is_all_total_hallucinations(
+    cf_dict: dict[str, dict[str, ConfusionMatrix]],
+) -> bool:
+    return all(
+        cf.is_complete_hallucination()
+        for instance_to_cf in cf_dict.values()
+        for cf in instance_to_cf.values()
+    )
+
+
+def filter_hallucinatory(
+    occurence_dict: dict[str, Counter[str]],
+    cf_dict: dict[str, dict[str, ConfusionMatrix]],
+) -> dict[str, Counter[str]]:
+    # return {
+    #     k: v for k, v in occurence_dict.items() if not json_cf_dict.get(k, False)
+    # }
+    def compare(
+        ocurrence_count: Counter[str], occurence_to_cf: dict[str, ConfusionMatrix]
+    ) -> Counter[str]:
+        filtered_count: Counter[str] = Counter()
+        for occurence, count in occurence_count.items():
+            cf = occurence_to_cf[occurence]
+            if not cf.is_complete_hallucination():
+                # filtered_count[occurence] = count - cf.totals["FP"]
+                # keep it true to what the model predicted
+                filtered_count[occurence] = count
+        return filtered_count
+
+    filtered_occurence_dict: dict[str, Counter[str]] = {}
+    for attr, occurence_count in occurence_dict.items():
+        filtered_occurence_count = compare(occurence_count, cf_dict[attr])
+        if len(filtered_occurence_count) > 0:
+            filtered_occurence_dict[attr] = filtered_occurence_count
+    return filtered_occurence_dict
+
+
 def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
     if row["JSON"] == "" and row["XML"] == "":
         return []
@@ -532,50 +573,6 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
     xml_dict = xml_str_to_dict(row["XML"])
     xml_cf_dict = get_cf_dict(xml_dict, row["window_text"])
     json_cf_dict = get_cf_dict(json_dict, row["window_text"])
-
-    def parse_has_no_total_hallucinations(
-        cf_dict: dict[str, dict[str, ConfusionMatrix]],
-    ) -> bool:
-        return not any(
-            cf.is_complete_hallucination()
-            for instance_to_cf in cf_dict.values()
-            for cf in instance_to_cf.values()
-        )
-
-    def parse_is_all_total_hallucinations(
-        cf_dict: dict[str, dict[str, ConfusionMatrix]],
-    ) -> bool:
-        return all(
-            cf.is_complete_hallucination()
-            for instance_to_cf in cf_dict.values()
-            for cf in instance_to_cf.values()
-        )
-
-    def filter_hallucinatory(
-        occurence_dict: dict[str, Counter[str]],
-        cf_dict: dict[str, dict[str, ConfusionMatrix]],
-    ) -> dict[str, Counter[str]]:
-        # return {
-        #     k: v for k, v in occurence_dict.items() if not json_cf_dict.get(k, False)
-        # }
-        def compare(
-            ocurrence_count: Counter[str], occurence_to_cf: dict[str, ConfusionMatrix]
-        ) -> Counter[str]:
-            filtered_count: Counter[str] = Counter()
-            for occurence, count in occurence_count.items():
-                cf = occurence_to_cf[occurence]
-                if not cf.is_complete_hallucination():
-                    # filtered_count[occurence] = count - cf.totals["FP"]
-                    # keep it true to what the model predicted
-                    filtered_count[occurence] = count
-            return filtered_count
-
-        filtered_occurence_dict: dict[str, Counter[str]] = {}
-        for attr, occurence_count in occurence_dict.items():
-            filtered_occurence_count = compare(occurence_count, cf_dict[attr])
-            if len(filtered_occurence_count) > 0:
-                filtered_occurence_dict[attr] = filtered_occurence_count
-        return filtered_occurence_dict
 
     if json_dict == xml_dict:
         if parse_has_no_total_hallucinations(
@@ -765,30 +762,40 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         return min(range(len(token_index_ls)), default=-1, key=closest)
 
     def build_med_windows(
-        section_body: str, meds: set[str]
+        section_begin: int, section_body: str, meds: set[str]
     ) -> list[tuple[tuple[int, int], tuple[int, int], str]]:
         meds_regex = "|".join(map(re.escape, meds))
         normalized_section = section_body.lower()
         token_index_ls = [token.span() for token in re.finditer(r"\S+", section_body)]
 
         def match_to_window(med_match) -> tuple[tuple[int, int], tuple[int, int], str]:
-            # TODO - adjust these to document level offsets by using
+            # DONE - adjust these to document level offsets by using
             # section offsets
-            med_begin, med_end = med_match.span()
-            med_central_index = get_central_index(med_begin, token_index_ls)
-            # TODO - adjust these to document level offsets by using
+            med_local_begin, med_local_end = med_match.span()
+            med_central_index = get_central_index(med_local_begin, token_index_ls)
+            # DONE - adjust these to document level offsets by using
             # section offsets
-            window_begin = token_index_ls[max(0, med_central_index - WINDOW_RADIUS)][0]
-            window_end = token_index_ls[
+            med_cas_begin = med_local_begin + section_begin
+            med_cas_end = med_local_end + section_begin
+            window_local_begin = token_index_ls[
+                max(0, med_central_index - WINDOW_RADIUS)
+            ][0]
+            window_local_end = token_index_ls[
                 min(len(token_index_ls) - 1, med_central_index + WINDOW_RADIUS)
             ][1]
-            opening = normalized_section[window_begin:med_begin]
-            tagged_medication = normalized_section[med_begin:med_end]
-            closing = normalized_section[med_end:window_end]
+            window_cas_begin = window_local_begin + section_begin
+            window_cas_end = window_local_end + section_begin
+            opening = normalized_section[window_local_begin:med_local_begin]
+            tagged_medication = normalized_section[med_local_begin:med_local_end]
+            closing = normalized_section[med_local_end:window_local_end]
             window = (
                 f"...{opening}<medication>{tagged_medication}</medication>{closing}..."
             )
-            return ((med_begin, med_end), (window_begin, window_end), window)
+            return (
+                (med_cas_begin, med_cas_end),
+                (window_cas_begin, window_cas_end),
+                window,
+            )
 
         return [
             match_to_window(med_match)
@@ -808,7 +815,9 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
             )
         ):
             return []
-        return build_med_windows(str(row.section_body), meds)
+        section_offsets = literal_eval(row["section_offsets"])
+        section_begin, sectio_end = section_offsets
+        return build_med_windows(section_begin, str(row.section_body), meds)
 
     raw_frame["raw_windows"] = raw_frame.apply(row_to_window_list, axis=1)
 
@@ -819,9 +828,7 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     raw_frame = raw_frame[raw_frame["raw_windows"].map(non_empty)]
     full_frame = raw_frame.explode("raw_windows")
 
-    full_frame["medication_local_offsets"] = full_frame["raw_windows"].map(
-        itemgetter(0)
-    )
+    full_frame["medication_cas_offsets"] = full_frame["raw_windows"].map(itemgetter(0))
 
     full_frame["window_cas_offsets"] = full_frame["raw_windows"].map(itemgetter(1))
 
