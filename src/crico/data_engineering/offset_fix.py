@@ -1,6 +1,7 @@
-import pandas as pd
-import os
 import argparse
+import os
+
+import pandas as pd
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument("--incorrect_offset_tsv", type=str)

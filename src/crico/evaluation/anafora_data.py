@@ -1,12 +1,13 @@
 import datetime
 import os
 from collections.abc import Iterable
-from ..utils import mkdir
 from enum import Enum
 
 import pytz
 from lxml import etree
 from lxml.etree import _Element  # for mypy
+
+from ..utils import mkdir
 
 
 class Progress(Enum):
