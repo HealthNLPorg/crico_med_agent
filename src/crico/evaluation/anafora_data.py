@@ -1,6 +1,7 @@
 import datetime
 import os
 from collections.abc import Iterable
+from ..utils import mkdir
 from enum import Enum
 
 import pytz
@@ -309,5 +310,7 @@ class AnaforaDocument:
         return etree.fromstring(self.build_raw_string())
 
     def write_to_dir(self, output_dir: str) -> None:
-        with open(os.path.join(output_dir, self.get_out_fn()), mode="wb") as f:
+        filename_dir = os.path.join(output_dir, self.filename)
+        mkdir(filename_dir)
+        with open(os.path.join(filename_dir, self.get_out_fn()), mode="wb") as f:
             f.write(etree.tostring(self.get_etree(), pretty_print=True))

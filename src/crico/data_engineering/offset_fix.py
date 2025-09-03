@@ -18,7 +18,7 @@ def process(
         "medication_cas_offsets"
     ]
     incorrect_offset_df["window_cas_offsets"] = correct_offset_df["window_cas_offsets"]
-    corrected_df = incorrect_offset_df.drop("medication_local_offsets")
+    corrected_df = incorrect_offset_df.drop("medication_local_offsets", axis="columns")
     aligned_colums = {
         "section_identifier",
         "filename",
@@ -30,7 +30,7 @@ def process(
             f"{column} items don't match {elementwise_comparison}"
         )
     corrected_df.to_csv(
-        os.path.join(output_dir, os.path.basename(incorrect_offset_df)),
+        os.path.join(output_dir, f"corrected_{os.path.basename(incorrect_offset_tsv)}"),
         sep="\t",
         index=False,
     )
