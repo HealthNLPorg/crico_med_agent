@@ -163,7 +163,7 @@ def __study_id_confusion_matrix(
         "medication": (
             len(true_positive_meds),
             len(false_positive_meds),
-            len(false_positive_meds),
+            len(false_negative_meds),
         ),
         "instruction": __attr_confusion_mattrix(
             ground_med_dicts=ground_med_dicts,
