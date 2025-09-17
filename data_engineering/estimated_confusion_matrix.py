@@ -1,6 +1,6 @@
 import argparse
 import math
-from itertools import groupby, takewhile, dropwhile
+from itertools import dropwhile, groupby, takewhile
 
 parser = argparse.ArgumentParser(description="")
 

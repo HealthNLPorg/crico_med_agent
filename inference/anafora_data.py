@@ -1,11 +1,12 @@
 import datetime
 import os
-from typing import Iterable
 from enum import Enum
+from typing import Iterable
 
 import pytz
 from lxml import etree
 from lxml.etree import _Element  # for mypy
+
 
 class Progress(Enum):
     completed = 0
@@ -24,6 +25,7 @@ class Progress(Enum):
                 return "completed"
             case Progress.inprogress:
                 return "in-progress"
+
 
 def timestamp() -> str:
     current_time = datetime.datetime.now(pytz.timezone("America/New_York"))
