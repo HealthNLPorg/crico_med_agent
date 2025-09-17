@@ -1,29 +1,35 @@
 import argparse
-import os
-import re
 import json
 import logging
+import os
+import re
 from ast import literal_eval
-from itertools import chain, islice
-from typing import cast, Any
-from collections.abc import Iterable
 from collections import Counter
-from operator import itemgetter
+from collections.abc import Iterable
 from functools import partial
+from itertools import chain, groupby, islice
+from operator import attrgetter, itemgetter
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
-from anafora_data import (
+from lxml import etree
+from lxml.etree import (
+    _Element,
+)
+
+from ..utils import basename_no_ext, mkdir, parse_serialized_output
+from .anafora_data import (
     AnaforaDocument,
-    Instruction,
-    InstructionCondition,
     Dosage,
     Frequency,
+    Instruction,
+    InstructionCondition,
     Medication,
     MedicationAttribute,
 )
-from utils import basename_no_ext, mkdir
 
+DATA_SPACES = ["anafora_xml", "agent_1_output", "agent_2_output", "json_lines"]
 logger = logging.getLogger(__name__)
 
 logging.basicConfig(
@@ -36,18 +42,32 @@ parser.add_argument(
     "--input_tsv",
     type=str,
     help="TSV with instances in the output column",
+    default=None,
 )
 
+parser.add_argument(
+    "--paired_anafora_dir",
+    type=str,
+    help="TSV with instances in the output column",
+    default=None,
+)
 parser.add_argument(
     "--output_dir",
     type=str,
     help="Where to output STUFF",
+    default=None,
 )
 parser.add_argument(
-    "--mode",
+    "--input_mode",
     type=str,
-    choices=["anafora", "windows"],
-    help="Whether stuff is Anafora XML or Windows",
+    choices=DATA_SPACES,
+    help="Representation space of the input data",
+)
+parser.add_argument(
+    "--output_mode",
+    type=str,
+    choices=DATA_SPACES,
+    help="Target representation space",
 )
 parser.add_argument(
     "--get_differences",
@@ -71,12 +91,191 @@ class ConfusionMatrix(Counter):
         return self.totals["FP"] > 0 and self.totals["TP"] == 0
 
 
+# In [50]: import json
+# In [51]: json.dumps({"_json_true": True, "_json_false_": False})
+# Out[51]: '{"_json_true": true, "_json_false_": false}'
+# It gets taken care of
+def __file_to_unmerged_dictionaries(
+    xml_path: str, note_path: str
+) -> Iterable[dict[str, str | int | bool]]:
+    with open(xml_path, mode="rb") as xml_f:
+        anafora_xml = etree.fromstring(xml_f.read())
+
+    with open(note_path) as note_f:
+        note_text = note_f.read()
+
+    __local_med_dict = partial(
+        __build_medication_dictionary_from_anafora,
+        note_text,
+    )
+    for annotation in anafora_xml.find("annotations"):
+        if (
+            annotation.tag == "entity"
+            and annotation.find("type").text == "Medications/Drugs"
+        ):
+            yield __local_med_dict(annotation)
+
+
+def __file_to_merged_dictionaries(
+    study_id: int, xml_path: str, note_path: str
+) -> Iterable[dict[str, str | int | bool]]:
+    unmerged_medication_dictionaries = sorted(
+        __file_to_unmerged_dictionaries(xml_path, note_path),
+        key=itemgetter("medication"),
+    )
+    for medication, medication_dictionaries_iter in groupby(
+        unmerged_medication_dictionaries,
+        key=itemgetter("medication"),
+    ):
+        # to avoid consumption on repeat iterations
+        medication_dictionaries = list(medication_dictionaries_iter)
+        yield {
+            "study_id": study_id,
+            "medication": medication,
+            "has_at_least_one_instruction": any(
+                map(itemgetter("has_at_least_one_instruction"), medication_dictionaries)
+            ),
+            "has_at_least_one_condition": any(
+                map(itemgetter("has_at_least_one_condition"), medication_dictionaries)
+            ),
+        }
+
+
+def __build_medication_dictionary_from_anafora(
+    note_text: str,
+    medication_annotation: _Element,
+) -> dict[str, str | int | bool]:
+    begin, end = [
+        int(idx) for idx in medication_annotation.find("span").text.split(",")
+    ]
+    properties = medication_annotation.find("properties")
+    return {
+        "medication": note_text[begin:end].strip().lower(),
+        "has_at_least_one_instruction": any(
+            p.text for p in properties.findall("instruction_")
+        ),
+        "has_at_least_one_condition": any(
+            p.text for p in properties.findall("instruction_condition")
+        ),
+    }
+
+
+def __get_med_json_line(medication_dictionary: dict[str, str | int | bool]) -> str:
+    return f"{json.dumps(medication_dictionary)}\n"
+
+
+def __dir_to_dictionaries(
+    anafora_dir: str,
+) -> Iterable[dict[str, str | int | bool]]:
+    def get_study_id(subdir: str) -> int:
+        return int(subdir.split("_")[-1])
+
+    def get_xml_and_note_fns(abs_subdir: str) -> tuple[str | None, str]:
+        relevant_files = (fn for fn in os.listdir(abs_subdir) if fn.startswith("Study"))
+        relevant_files_sorted = sorted(relevant_files, reverse=True)
+        if len(relevant_files_sorted) == 2:
+            xml_fn, note_fn = relevant_files_sorted
+            return xml_fn, note_fn
+        elif len(relevant_files_sorted) == 1:
+            return None, relevant_files_sorted[0]
+        else:
+            raise ValueError(f"{abs_subdir} has invalid contents: {relevant_files}")
+
+    for subdir in os.listdir(anafora_dir):
+        if subdir.startswith("Study"):
+            study_id = get_study_id(subdir)
+            abs_subdir = os.path.join(anafora_dir, subdir)
+            xml_fn, note_fn = get_xml_and_note_fns(abs_subdir)
+            if xml_fn is not None:
+                xml_path = os.path.join(abs_subdir, xml_fn)
+                note_path = os.path.join(abs_subdir, note_fn)
+                yield from __file_to_merged_dictionaries(
+                    study_id=study_id, xml_path=xml_path, note_path=note_path
+                )
+
+
+def agent_2_to_json_lines(
+    input_tsv: str, output_dir: str, get_differences: bool = False
+) -> None:
+    corpus_frame = pd.read_csv(input_tsv, sep="\t").fillna("")
+
+    out_path = os.path.join(output_dir, f"{os.path.basename(input_tsv)}.jsonl")
+
+    with open(out_path, mode="w", encoding="utf-8") as f:
+        for fn, fn_frame in corpus_frame.groupby(["filename"]):
+            (base_fn,) = cast(tuple[str,], fn)
+            for (
+                medication_dictionary
+            ) in __build_medication_dictionaries_from_file_frame(
+                base_fn, fn_frame, output_dir, get_differences
+            ):
+                f.write(__get_med_json_line(medication_dictionary))
+
+
+def __build_medication_dictionaries_from_file_frame(
+    base_fn: str, fn_frame: pd.DataFrame, output_dir: str, get_differences: bool
+) -> Iterable[dict[str, str | int | bool]]:
+    medications, _ = get_medications_aligned_with_attributes(fn_frame)
+    study_id_number = int(base_fn.split("_")[-1])
+
+    def __normalize_med_text(medication: Medication) -> str:
+        return medication.get_text().strip().lower()
+
+    sorted_medications = sorted(medications, key=__normalize_med_text)
+
+    def __cluster_has_at_least_one_of_attr_name(
+        med_cluster_ls: list[Medication], attr_name: str
+    ) -> bool:
+        return any(map(len, map(attrgetter(attr_name), med_cluster_ls)))
+
+    for normalized_med_text, same_med_cluster_iter in groupby(
+        sorted_medications, key=__normalize_med_text
+    ):
+        same_med_cluster_ls = list(same_med_cluster_iter)
+        # NB, these keys don't match those in
+        # build_medication_attribute (currently line 600),
+        # but that's bc of the attribute
+        # names in the Medication class
+        # in ./anafora_data.py
+        if study_id_number == 121_379 and normalized_med_text == "omeprazole":
+            for med in same_med_cluster_ls:
+                print(str(med))
+        yield {
+            "study_id": study_id_number,
+            "medication": normalized_med_text,
+            "has_at_least_one_instruction": __cluster_has_at_least_one_of_attr_name(
+                same_med_cluster_ls, "instructions"
+            ),
+            "has_at_least_one_condition": __cluster_has_at_least_one_of_attr_name(
+                same_med_cluster_ls, "instruction_conditions"
+            ),
+        }
+
+
+def anafora_to_json_lines(
+    paired_anafora_dir: str,
+    output_dir: str,
+) -> None:
+    # str.rstrip since if it ends with /
+    # basename returns ""
+    base_folder_name = os.path.basename(paired_anafora_dir.rstrip("/"))
+    out_path = os.path.join(output_dir, f"{base_folder_name}.jsonl")
+
+    with open(out_path, mode="w", encoding="utf-8") as f:
+        for medication_dictionary in __dir_to_dictionaries(paired_anafora_dir):
+            f.write(__get_med_json_line(medication_dictionary))
+
+
+# DONE - check span adjustment logic
 def get_medication_anafora_annotation(row: pd.Series) -> Medication:
-    # inappropriately named because I SCREWED UP
-    # YES THAT'S RIGHT I SCREWED UP CAN YOU BELIEVE IT???????????
+    # incorrect name (will need to double check but)
+    # the medication offsets are actually document/CAS level
+    # since they define the window
     cas_level_span = literal_eval(row["medication_local_offsets"])
     filename = row["filename"]
-    medication = Medication(span=cas_level_span, filename=filename)
+    medication = Medication(
+        span=cas_level_span, filename=filename, text=row["medication"]
+    )
     medication.set_cui_str(row.get("cuis", ""))
     medication.set_tui_str(row.get("tuis", ""))
     return medication
@@ -98,21 +297,23 @@ def to_anafora_files(
         to_anafora_file(base_fn, fn_frame, output_dir, get_differences)
 
 
-def to_anafora_file(
-    base_fn: str, fn_frame: pd.DataFrame, output_dir: str, get_differences: bool
-) -> None:
-    fn_anafora_document = AnaforaDocument(filename=base_fn)
-    medications: list[Medication] = fn_frame.apply(
-        get_medication_anafora_annotation, axis=1
-    ).to_list()
+def contains_tags(tag_core: str, target: str) -> bool:
+    open_tag = f"<{tag_core}>"
+    close_tag = f"</{tag_core}>"
+    return open_tag in target and close_tag in target
 
-    def contains_tags(tag_core: str, target: str) -> bool:
-        open_tag = f"<{tag_core}>"
-        close_tag = f"</{tag_core}>"
-        return open_tag in target and close_tag in target
 
+def retain_subframe_with_validated_windows(
+    fn_frame: pd.DataFrame,
+) -> pd.DataFrame:
     contains_med_tags = partial(contains_tags, "medication")
     fn_frame = fn_frame.loc[fn_frame["window_text"].map(contains_med_tags)]
+    return fn_frame
+
+
+def unfold_frame(
+    fn_frame: pd.DataFrame,
+) -> pd.DataFrame:
     fn_frame["medication"] = fn_frame["window_text"].map(get_medication_text)
     fn_frame["combined"] = fn_frame["serialized_output"].map(parse_serialized_output)
     fn_frame["JSON"] = fn_frame["combined"].map(itemgetter(0))
@@ -120,11 +321,30 @@ def to_anafora_file(
     fn_frame.drop(columns=["combined", "serialized_output"], inplace=True)
     fn_frame["JSON"] = fn_frame.apply(select_json, axis=1)
     fn_frame["XML"] = fn_frame.apply(select_xml, axis=1)
+    return fn_frame
+
+
+def get_medications_aligned_with_attributes(
+    fn_frame: pd.DataFrame,
+) -> tuple[list[Medication], list[MedicationAttribute]]:
+    fn_frame = retain_subframe_with_validated_windows(fn_frame)
+    fn_frame = unfold_frame(fn_frame)
+    medications: list[Medication] = fn_frame.apply(
+        get_medication_anafora_annotation, axis=1
+    ).to_list()
     attr_lists: list[list[MedicationAttribute]] = fn_frame.apply(
         parse_attributes, axis=1
     ).to_list()
     for medication, attr_list in zip(medications, attr_lists):
         medication.set_attributes(attr_list)
+    return medications, attr_lists
+
+
+def to_anafora_file(
+    base_fn: str, fn_frame: pd.DataFrame, output_dir: str, get_differences: bool
+) -> None:
+    medications, attr_lists = get_medications_aligned_with_attributes(fn_frame)
+    fn_anafora_document = AnaforaDocument(filename=base_fn)
     fn_anafora_document.set_entities(
         chain(
             medications,
@@ -134,10 +354,16 @@ def to_anafora_file(
     fn_anafora_document.write_to_dir(output_dir)
 
 
+# DONE - check span adjustment logic
 def get_local_spans_from_xml(
-    tagged_str: str, relevant_tags: set[str]
+    tagged_str: str, relevant_tags: set[str], debug_print=True
 ) -> Iterable[tuple[str, int, int]]:
-    tag_or_body = r"[^<>/]+"
+    # tag_or_body = r"[^<>/]+"
+    # DONE - current best solution according to metrics and
+    # parsing behavior from lxml
+    tag_or_body = r"[^<>]+"
+    # tag_or_body = r"[^<]+"
+    # tag_or_body = r".+"
     tag_regexes = {rf"<{tag}>{tag_or_body}</{tag}>" for tag in relevant_tags}
     relevant_tags_capture = rf"({'|'.join(tag_regexes)})"
     tag_and_body_capture = rf"<({tag_or_body})>({tag_or_body})</{tag_or_body}>"
@@ -145,22 +371,31 @@ def get_local_spans_from_xml(
     step = 0
     # TODO - revisit and see if this can be replaced with re.finditer
     # though for now don't fix what isn't broken
-    # TODO - might have to empirically
+    # DONE - might have to empirically
     # confirm this via the anafora visualization
     # code in format-writer
+    # COMMENT found the explanation
     for run in re.split(relevant_tags_capture, tagged_str):
         potential_match = re.search(tag_and_body_capture, run)
         if potential_match is None:
+            # TODO this might need tweaking (probably not)
+            # But if running into issues with spans
+            # try r"</?[^<>]>"
+            # (difference is the internal tag regex matches the earlier one)
             cleaned_run = re.sub(r"</?[^<>/]>", "", run)
             step = len(cleaned_run)
         else:
             tag = potential_match.group(1)
             body = potential_match.group(2)
+            if debug_print:
+                # TODO - need condition for the example
+                logger.info(f"MATCHED - {tag} - {body}")
             step = len(body)
             yield tag, current_begin, current_begin + step
         current_begin += step
 
 
+# DONE - check span adjustment logic
 def get_local_spans_from_json(
     window_text: str, json_dict: dict[str, Counter[str]]
 ) -> Iterable[tuple[str, int, int]]:
@@ -175,44 +410,19 @@ def get_local_spans_from_json(
             yield from strategy(all_matches, count)
 
     def strategy(matches: Iterable[re.Match[str]], count) -> Iterable[tuple[int, int]]:
-        # TODO tweak as necessary - might have to add other information from the row
+        # DONE tweak as necessary - might have to add other information from the row
+        # COMMENT will leave this as it is since the idea might be
+        # useful later even if not for this project
         return map(get_span, islice(matches, count))
 
-    # TODO adapt to cases with multiple values
+    # DONE adapt to cases with multiple values
+    # COMMENT not sure what I meant by the above comment,
+    # but I think this already works how it's supposed to?
     for attr, occurence_count in json_dict.items():
         # for match_span in strategy(map(get_span, re.finditer(body, window_text))):
         for match_span in get_matches(occurence_count, window_text):
             begin, end = match_span
             yield attr, begin, end
-
-
-# copied from ../visualization/write_to_org.py
-def deserialize(s: str) -> str:
-    return (
-        s.replace("<cn>", "\n")
-        .replace("<cr>", "\r")
-        .replace("<ct>", "\t")
-        .replace("<cf>", "\f")
-    )
-
-
-# copied from ../visualization/write_to_survey.py
-def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str]]:
-    model_output = deserialize(literal_eval(serialized_output)[0])
-    if model_output.strip().lower() == "none":
-        return ["None"], ["None"]
-    groups = re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output)
-    json_raw_parses = [
-        parse_group[5:].strip()
-        for parse_group in groups
-        if parse_group.strip().lower().startswith("json:")
-    ]
-    xml_raw_parses = [
-        parse_group[4:].strip()
-        for parse_group in groups
-        if parse_group.strip().lower().startswith("xml:")
-    ]
-    return json_raw_parses, xml_raw_parses
 
 
 def get_tagged_bodies(xml_tag: str, window_text: str) -> list[str]:
@@ -248,6 +458,13 @@ def json_str_to_dict(json_str: str) -> dict[str, Counter[str]]:
     relevant_attributes = {"dosage", "frequency", "instruction", "condition"}
     # TODO - figure out if the one getting lost in the test set is
     # actually a bug
+    # TODO figure out which instance above was the issue
+    # finding out when this question was inserted into the code was:
+    # (base) etg@laptop:~/Repos/CRICO/src/crico/evaluation$ git log -S "# TODO - figure out if the one getting lost in the test set is"
+    # commit 20c866e90b1045096388fb58a35361bd70c12f79
+    # Author: Eli Goldner <etgld@posteo.us>
+    # Date:   Fri May 9 22:46:15 2025 -0400
+    # Working on both dev and test - time to evaluate
     if len(json_str.strip()) == 0:
         return dict()
     try:
@@ -363,7 +580,7 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
             xml_cf_dict
         ) and parse_has_no_total_hallucinations(json_cf_dict):
             logger.info("JSON and XML agree and are entirely non-hallucinatory")
-            return get_spans_from_xml(
+            return get_medication_attributes_from_xml(
                 row, {"instruction", "condition", "dosage", "frequency"}
             )
         else:
@@ -379,7 +596,7 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
                 logger.info(
                     "JSON and XML agree and are partially hallucinatory - defaulting to non-hallucinatory JSON for cleaner parsing"
                 )
-                return get_spans_from_json(
+                return get_medication_attributes_from_json(
                     row,
                     filter_hallucinatory(
                         occurence_dict=json_dict, cf_dict=json_cf_dict
@@ -388,9 +605,16 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
     else:
         if parse_has_no_total_hallucinations(xml_cf_dict):
             logger.info("JSON and XML disagree - XML is non-hallucinatory")
-            return get_spans_from_xml(
+            med_attrs = get_medication_attributes_from_xml(
                 row, {"instruction", "condition", "dosage", "frequency"}
             )
+            # if row["filename"] == "Study_ID_121379" and row["medication"] == "omeprazole":
+            #     print(row)
+            #     print(row["JSON"])
+            #     print(row["XML"])
+            #     for med_attr in med_attrs:
+            #         print(str(med_attr))
+            return med_attrs
         elif parse_is_all_total_hallucinations(
             xml_cf_dict
         ) and parse_is_all_total_hallucinations(json_cf_dict):
@@ -402,12 +626,13 @@ def parse_attributes(row: pd.Series) -> list[MedicationAttribute]:
             logger.info(
                 "JSON and XML disagree and XML is partially hallucinatory - defaulting to non-hallucinatory JSON for cleaner parsing"
             )
-            return get_spans_from_json(
+            return get_medication_attributes_from_json(
                 row,
                 filter_hallucinatory(occurence_dict=json_dict, cf_dict=json_cf_dict),
             )
 
 
+# DONE - check span adjustment logic
 def build_medication_attribute(
     filename: str, window_begin: int, attr_type: str, local_begin: int, local_end: int
 ) -> MedicationAttribute | None:
@@ -429,13 +654,27 @@ def build_medication_attribute(
             return None
 
 
-def get_spans_from_xml(row: pd.Series, attrs: set[str]) -> list[MedicationAttribute]:
+# DONE - check span adjustment logic
+def get_medication_attributes_from_xml(
+    row: pd.Series, attrs: set[str]
+) -> list[MedicationAttribute]:
     filename = row["filename"]
+    debug_span = False
+    # if row["filename"] == "Study_ID_121379" and row["medication"] in {
+    #     "omeprazole",
+    #     "carafate",
+    #     "avastin",
+    # }:
+    #     print(row)
+    #     print(row["JSON"])
+    #     print(row["XML"])
+    #     debug_span = True
     local_spans = get_local_spans_from_xml(
         # row["result"],
         row["XML"],
         # {"instruction", "instructionCondition"},
         attrs,
+        # debug_print=debug_span,
     )
     window_begin, _ = literal_eval(row["window_cas_offsets"])
 
@@ -451,7 +690,8 @@ def get_spans_from_xml(row: pd.Series, attrs: set[str]) -> list[MedicationAttrib
     return result
 
 
-def get_spans_from_json(
+# DONE - check span adjustment logic
+def get_medication_attributes_from_json(
     row: pd.Series,
     json_dict: dict[str, Counter[str]],
 ) -> list[MedicationAttribute]:
@@ -486,7 +726,7 @@ def output_to_result(row: pd.Series) -> str:
     return full_output.split("\nResult:\n")[-1].strip()
 
 
-def anafora_process(
+def agent_2_to_anafora(
     input_tsv: str, output_dir: str, get_differences: bool = False
 ) -> None:
     raw_frame = pd.read_csv(input_tsv, sep="\t")
@@ -530,8 +770,12 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
         token_index_ls = [token.span() for token in re.finditer(r"\S+", section_body)]
 
         def match_to_window(med_match) -> tuple[tuple[int, int], tuple[int, int], str]:
+            # TODO - adjust these to document level offsets by using
+            # section offsets
             med_begin, med_end = med_match.span()
             med_central_index = get_central_index(med_begin, token_index_ls)
+            # TODO - adjust these to document level offsets by using
+            # section offsets
             window_begin = token_index_ls[max(0, med_central_index - WINDOW_RADIUS)][0]
             window_end = token_index_ls[
                 min(len(token_index_ls) - 1, med_central_index + WINDOW_RADIUS)
@@ -586,7 +830,7 @@ def build_frame_with_med_windows(raw_frame: pd.DataFrame) -> pd.DataFrame:
     return full_frame
 
 
-def windows_process(input_tsv: str, output_dir: str) -> None:
+def agent_1_to_agent_2(input_tsv: str, output_dir: str) -> None:
     raw_frame = pd.read_csv(input_tsv, sep="\t")
     expanded_windows_frame = build_frame_with_med_windows(raw_frame)
     mkdir(output_dir)
@@ -597,11 +841,33 @@ def windows_process(input_tsv: str, output_dir: str) -> None:
 
 def main() -> None:
     args = parser.parse_args()
-    match args.mode:
-        case "anafora":
-            anafora_process(args.input_tsv, args.output_dir, args.get_differences)
-        case "windows":
-            windows_process(args.input_tsv, args.output_dir)
+    match args.input_mode, args.output_mode:
+        case "agent_2_output", "anafora_xml":
+            assert args.input_tsv is not None and args.output_dir is not None, (
+                f"input tsv is {args.input_tsv} and output dir is {args.output_dir} both must be non-None"
+            )
+            agent_2_to_anafora(args.input_tsv, args.output_dir, args.get_differences)
+        case "agent_1_output", "agent_2_output":
+            assert args.input_tsv is not None and args.output_dir is not None, (
+                f"input tsv is {args.input_tsv} and output dir is {args.output_dir} both must be non-None"
+            )
+            agent_1_to_agent_2(args.input_tsv, args.output_dir)
+        case "anafora_xml", "json_lines":
+            assert (
+                args.paired_anafora_dir is not None and args.output_dir is not None
+            ), (
+                f"input tsv is {args.paired_anafora_dir} and output dir is {args.output_dir} both must be non-None"
+            )
+            anafora_to_json_lines(args.paired_anafora_dir, args.output_dir)
+        case "agent_2_output", "json_lines":
+            assert args.input_tsv is not None and args.output_dir is not None, (
+                f"input tsv is {args.input_tsv} and output dir is {args.output_dir} both must be non-None"
+            )
+            agent_2_to_json_lines(args.input_tsv, args.output_dir)
+        case _:
+            logger.info(
+                f"No transformations defined from {args.input_mode} to {args.output_mode} - skipping"
+            )
 
 
 if __name__ == "__main__":

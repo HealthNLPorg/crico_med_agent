@@ -9,7 +9,7 @@ parser.add_argument("--dictionary_counts", type=str)
 
 
 def get_count_dictionary(counts_path: str) -> dict[str, int]:
-    with open(counts_path, mode="rt") as f:
+    with open(counts_path) as f:
         instances = f.readlines()
 
     def parse(inst: str) -> tuple[str, int]:

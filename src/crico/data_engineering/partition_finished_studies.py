@@ -2,7 +2,8 @@ import argparse
 import json
 import logging
 import os
-from typing import Iterable, cast
+from collections.abc import Iterable
+from typing import cast
 
 import pandas as pd
 
@@ -45,7 +46,7 @@ def partition_frames(
 def process(
     input_tsv: str, output_dir: str, text_column: str, counts_json: str
 ) -> None:
-    with open(counts_json, mode="r", encoding="utf-8") as f:
+    with open(counts_json, encoding="utf-8") as f:
         fn_to_instance_count = json.loads(f.read())
     full_frame = pd.read_csv(input_tsv, sep="\t", low_memory=False)
     sub_frames_ls = list(partition_frames(full_frame, fn_to_instance_count))

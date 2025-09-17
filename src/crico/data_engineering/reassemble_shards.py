@@ -3,11 +3,10 @@ import gc
 import logging
 import os
 from collections import deque
+from collections.abc import Iterable
 from itertools import chain
-from typing import Deque, Iterable
 
 import pandas as pd
-
 from partition_time_by_job_count_shards import mkdir
 
 parser = argparse.ArgumentParser(description="")
@@ -27,8 +26,8 @@ def get_relevant_paths(input_folders: list[str]) -> tuple[Iterable[str], Iterabl
     study_id_fn = "shard_study_ids.txt"
     processed_shard_frame_fn = "shard_frame.tsv"
     processed_keyword = "processed"
-    frame_paths: Deque[str] = deque()
-    study_id_paths: Deque[str] = deque()
+    frame_paths: deque[str] = deque()
+    study_id_paths: deque[str] = deque()
     for input_folder in input_folders:
         for root, dirs, files in os.walk(input_folder):
             if study_id_fn in files:
@@ -60,7 +59,7 @@ def build_and_write_frame(frame_paths: Iterable[str], output_dir: str) -> None:
 
 def build_and_write_study_ids(study_id_paths: Iterable[str], output_dir: str) -> None:
     def load_ids(study_id_path: str) -> Iterable[int]:
-        with open(study_id_path, mode="r", encoding="utf-8") as f:
+        with open(study_id_path, encoding="utf-8") as f:
             return map(int, f.readlines())
 
     all_inds = sorted(chain.from_iterable(map(load_ids, study_id_paths)))

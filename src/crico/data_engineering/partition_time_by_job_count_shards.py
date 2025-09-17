@@ -8,7 +8,7 @@ from collections import deque
 from functools import lru_cache, partial
 from math import ceil
 from operator import itemgetter
-from typing import Deque, cast
+from typing import cast
 
 import pandas as pd
 
@@ -87,7 +87,7 @@ def process(
     already_added = set()
     current_instances = 0
     shards_remaining = job_count
-    shard_data: Deque[tuple[int, pd.DataFrame]] = deque()
+    shard_data: deque[tuple[int, pd.DataFrame]] = deque()
     instances_per_job = get_instances_per_job(
         hours_per_job, minutes_per_job, seconds_per_instance
     )

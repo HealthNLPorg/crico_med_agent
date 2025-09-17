@@ -1,11 +1,10 @@
 import argparse
 import gc
 import os
-from typing import Iterable
+from collections.abc import Iterable
 from itertools import chain
 
 import pandas as pd
-
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument("--shard_folder_with_fixed", type=str)

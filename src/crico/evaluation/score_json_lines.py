@@ -1,11 +1,10 @@
-import logging
 import argparse
 import json
+import logging
 from collections.abc import Iterable
-from operator import itemgetter
 from itertools import groupby
+from operator import itemgetter
 from typing import cast
-
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,7 @@ parser.add_argument(
     type=str,
     default=None,
 )
-med_dict = dict[str, str | int | bool]
+MedDict = dict[str, str | int | bool]
 
 
 def __precision(tp: int, fp: int) -> float:
@@ -56,32 +55,31 @@ def __get_type_level_scores(
     return __scores(total_tp, total_fp, total_fn)
 
 
-def __load_med_dicts(jsonl_path: str) -> Iterable[med_dict]:
-    with open(jsonl_path, mode="rt", encoding="utf-8") as f:
+def __load_med_dicts(jsonl_path: str) -> Iterable[MedDict]:
+    with open(jsonl_path, encoding="utf-8") as f:
         for line in f:
             yield json.loads(line)
 
 
-def __med_matches(med_dicts: Iterable[med_dict], meds: set[str]) -> Iterable[med_dict]:
+def __med_matches(med_dicts: Iterable[MedDict], meds: set[str]) -> Iterable[MedDict]:
     for med_dict in med_dicts:
         if med_dict["medication"] in meds:
             yield med_dict
 
 
 def __shared_med_dicts(
-    d_ls_1: list[med_dict], d_ls_2: list[med_dict], meds: set[str]
-) -> Iterable[tuple[med_dict, med_dict]]:
+    d_ls_1: list[MedDict], d_ls_2: list[MedDict], meds: set[str]
+) -> Iterable[tuple[MedDict, MedDict]]:
     for med in meds:
         d_ls_1_matches = list(__med_matches(d_ls_1, {med}))
         d_ls_2_matches = list(__med_matches(d_ls_2, {med}))
         assert len(d_ls_1_matches) == len(d_ls_2_matches) == 1
-        for d_1, d_2 in zip(d_ls_1_matches, d_ls_2_matches):
-            yield d_1, d_2
+        yield from zip(d_ls_1_matches, d_ls_2_matches)
 
 
 def __attr_confusion_mattrix(
-    ground_med_dicts: list[med_dict],
-    pred_med_dicts: list[med_dict],
+    ground_med_dicts: list[MedDict],
+    pred_med_dicts: list[MedDict],
     true_positive_meds: set[str],
     false_positive_meds: set[str],
     false_negative_meds: set[str],
@@ -143,8 +141,8 @@ def __attr_confusion_mattrix(
 
 
 def __study_id_confusion_matrix(
-    ground_med_dicts: list[med_dict],
-    pred_med_dicts: list[med_dict],
+    ground_med_dicts: list[MedDict],
+    pred_med_dicts: list[MedDict],
     # convention is TP, FP, FN
 ) -> dict[str, tuple[int, int, int]]:
     # Contract from upstream is
