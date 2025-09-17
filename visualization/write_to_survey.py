@@ -5,6 +5,7 @@ import os
 import pathlib
 import re
 from ast import literal_eval
+from itertools import chain
 from functools import partial
 from operator import itemgetter
 
@@ -19,6 +20,7 @@ parser.add_argument(
     type=str,
 )
 parser.add_argument("--output_dir", type=str)
+parser.add_argument("--filter_hallucinations", action="store_true")
 # parser.add_argument("--parse_type", choices=["json", "xml", "xml_first", "json_first"])
 
 
@@ -33,9 +35,17 @@ def serialize_whitespace(sample: str | None) -> str:
     )
 
 
+def field_is_hallucinatory(
+    row: pd.Series, ground_truth_column: str, field: str
+) -> bool:
+    def normalize_str(sample: str) -> str:
+        return sample.strip().lower()
+
+    return normalize_str(row[field]) in normalize_str(row[ground_truth_column])
+
+
 def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str]]:
     model_output = deserialize(literal_eval(serialized_output)[0])
-    # print(re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output))
     if model_output.strip().lower() == "none":
         return ["None"], ["None"]
     groups = re.split(r"(XML\:\s*[^\{\}]*|JSON\:\s*\{[^\{\}\}]*\})", model_output)
@@ -50,15 +60,6 @@ def parse_serialized_output(serialized_output: str) -> tuple[list[str], list[str
         if parse_group.strip().lower().startswith("xml:")
     ]
     return json_raw_parses, xml_raw_parses
-    # json_raw_parse, xml_raw_parse = [
-    #     text_body.strip()
-    #     for text_body in re.split(
-    #         r"XML\:|JSON\:",
-    #         model_output,
-    #     )
-    #     if len(text_body.strip()) > 0
-    # ]
-    # return json_raw_parse, xml_raw_parse
 
 
 def parse_key_from_json(key: str, json_str) -> str:
@@ -72,7 +73,6 @@ def parse_key_from_json(key: str, json_str) -> str:
 def get_medication(window_text: str) -> str:
     matches = re.findall(r"<medication>(.+)</medication>", window_text)
     if len(matches) == 0:
-        # logger.error(f"Window with no real medications:\n\n{window_text}")
         return ""
     return matches[0]
 
@@ -96,7 +96,7 @@ def select_xml(row: pd.Series) -> str:
     return ""
 
 
-def process(excel_input: str, output_dir: str) -> None:
+def process(excel_input: str, output_dir: str, filter_hallucinations: bool) -> None:
     df = (
         pd.read_excel(excel_input)
         if excel_input.lower().endswith("xlsx")
@@ -108,7 +108,12 @@ def process(excel_input: str, output_dir: str) -> None:
     # )
     # summarized_path = os.path.join(output_dir, f"survey_ready_{input_basename}.xlsx")
 
-    reference_path = os.path.join(output_dir, f"survey_ready_{input_basename}.tsv")
+    reference_path = os.path.join(
+        output_dir,
+        f"survey_ready_{input_basename}_hallucinatory_attributes_filtered.tsv"
+        if filter_hallucinations
+        else f"survey_ready_{input_basename}.tsv",
+    )
 
     def get_id_number(fn: str) -> int:
         return int(fn.split("_")[-1])
@@ -130,14 +135,30 @@ def process(excel_input: str, output_dir: str) -> None:
     ]
     for attr in attrs:
         if attr != "medication":
+            check_if_hallucinatory = partial(
+                field_is_hallucinatory,
+                ground_truth_column="window_text",
+                field=attr,
+            )
             df[attr] = df["JSON"].map(partial(parse_key_from_json, attr))
-    df = df.loc[(df["instruction"] != "") | (df["condition"]!= "")]
+            if filter_hallucinations:
+                df[f"{attr}_hallucinatory"] = df.apply(
+                    check_if_hallucinatory,
+                    axis=1,
+                )
+                # df.loc[df[f"{attr}_hallucinatory"], attr] = ""
+    df = df.loc[(df["instruction"] != "") | (df["condition"] != "")]
+
     def clean_section_id(section_str: str) -> str:
         return " ".join(section_str.split("_")[1:]).title()
 
+    non_med_attrs = set(attrs) - {"medication"}
+    attr_hallucinations = {f"{attr}_hallucinatory" for attr in non_med_attrs}
     df["section_identifier"] = df["section_identifier"].map(clean_section_id)
+    # df.drop(columns=[f"{attr}_hallucinatory" for attr in set(attrs) - {"medication"}], inplace=True)
     for column_name in df.columns:
-        df[column_name] = df[column_name].map(serialize_whitespace)
+        if not column_name.endswith("hallucinatory"):
+            df[column_name] = df[column_name].map(serialize_whitespace)
     reference_df = df[
         ["filename", "section_identifier", *attrs, "window_text", "JSON", "XML"]
     ]
@@ -147,7 +168,21 @@ def process(excel_input: str, output_dir: str) -> None:
     #     ["filename", "section_identifier", *attrs, "window_text", "JSON", "XML"]
     # ]
     reference_df = df[
-        ["filename", "section_identifier", *attrs, "window_text", "JSON", "XML"]
+        [
+            "filename",
+            "section_identifier",
+            "medication",
+            *(
+                chain.from_iterable(
+                    zip(sorted(non_med_attrs), sorted(attr_hallucinations))
+                )
+                if filter_hallucinations
+                else sorted(non_med_attrs)
+            ),
+            "window_text",
+            "JSON",
+            "XML",
+        ]
     ]
     # reference_df.to_excel(reference_path, index=False)
     # summarized_df.to_excel(summarized_path, index=False)
@@ -156,7 +191,7 @@ def process(excel_input: str, output_dir: str) -> None:
 
 def main() -> None:
     args = parser.parse_args()
-    process(args.excel_input, args.output_dir)
+    process(args.excel_input, args.output_dir, args.filter_hallucinations)
 
 
 if __name__ == "__main__":

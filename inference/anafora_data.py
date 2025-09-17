@@ -52,6 +52,47 @@ class AnaforaEntity:
         self.anafora_id = anafora_id
 
 
+# In the annotations the properties
+# field is of the form:
+# <properties>
+# 	<frequency_number></frequency_number>
+# 	<frequency_unit>$(frequency unit anafora ID)</frequency_unit>
+# </properties>
+# but will leave empty
+# for now since the model doesn't parse for frequency unit
+class Frequency(AnaforaEntity):
+    def __str__(self) -> str:
+        return (
+            "<entity>\n"
+            f"<id>{self.get_id_str()}</id>\n"
+            f"<span>{self.span[0]},{self.span[1]}</span>\n"
+            "<type>Frequency</type>\n"
+            "<parentsType>Attributes_medication</parentsType>\n"
+            "<properties/>\n"
+            "</entity>\n"
+        )
+
+
+# Similar to frequency, in the annotations the properties
+# field is of the form:
+# <properties>
+# 	<dosage_values>$(dosage value text)</dosage_values>
+# </properties>
+# but will leave empty
+# for now since the model doesn't parse for that subannotation
+class Dosage(AnaforaEntity):
+    def __str__(self) -> str:
+        return (
+            "<entity>\n"
+            f"<id>{self.get_id_str()}</id>\n"
+            f"<span>{self.span[0]},{self.span[1]}</span>\n"
+            "<type>Dosage</type>\n"
+            "<parentsType>Attributes_medication</parentsType>\n"
+            "<properties/>\n"
+            "</entity>\n"
+        )
+
+
 class Instruction(AnaforaEntity):
     def __str__(self) -> str:
         return (
@@ -78,19 +119,29 @@ class InstructionCondition(AnaforaEntity):
         )
 
 
+MedicationAttribute = Dosage | Frequency | Instruction | InstructionCondition
+
+
 class Medication(AnaforaEntity):
     def __init__(self, span: tuple[int, int], filename: str) -> None:
         super().__init__(span, filename)
         self.instruction_conditions: list[InstructionCondition] = []
         self.instructions: list[Instruction] = []
+        self.frequencies: list[Frequency] = []
+        self.dosages: list[Dosage] = []
         self.cui_str: str = ""
         self.tui_str: str = ""
 
     def build_raw_string(self) -> str:
+        def get_span(annotation: AnaforaEntity) -> tuple[int, int]:
+            return annotation.span
+
         instruction_condition_str = (
             "".join(
                 f"<instruction_condition>{instruction_condition.get_id_str()}</instruction_condition>\n"
-                for instruction_condition in self.instruction_conditions
+                for instruction_condition in sorted(
+                    self.instruction_conditions, key=get_span
+                )
             )
             if len(self.instruction_conditions) > 0
             else "<instruction_condition/>\n"
@@ -99,10 +150,26 @@ class Medication(AnaforaEntity):
         instruction_str = (
             "".join(
                 f"<instruction_>{instruction.get_id_str()}</instruction_>\n"
-                for instruction in self.instructions
+                for instruction in sorted(self.instructions, key=get_span)
             )
             if len(self.instructions) > 0
             else "<instruction_/>\n"
+        )
+        frequency_str = (
+            "".join(
+                f"<frequency_>{frequency.get_id_str()}</frequency_>\n"
+                for frequency in sorted(self.frequencies, key=get_span)
+            )
+            if len(self.frequencies) > 0
+            else "<frequency_/>\n"
+        )
+        dosage_str = (
+            "".join(
+                f"<dosage_>{dosage.get_id_str()}</dosage_>\n"
+                for dosage in sorted(self.dosages, key=get_span)
+            )
+            if len(self.dosages) > 0
+            else "<dosage_/>\n"
         )
         properties_str = (
             "<negation_indicator/>\n"
@@ -116,7 +183,8 @@ class Medication(AnaforaEntity):
             "<historyOf/>\n"
             "<allergy_indicator/>\n"
             "<change_status_model/>\n"
-            "<dosage_model/>\n"
+            f"{dosage_str}"
+            # "<dosage_model/>\n"
             "<duration_model/>\n"
             "<end_date/>\n"
             "<form_model/>\n"
@@ -124,7 +192,8 @@ class Medication(AnaforaEntity):
             "<route_model/>\n"
             "<start_date/>\n"
             "<strength_model/>\n"
-            "<frequency_model_2/>\n"
+            f"{frequency_str}"
+            # "<frequency_model_2/>\n"
             "<strength_model_2/>\n"
             f"{instruction_condition_str}"
             f"{instruction_str}"
@@ -147,10 +216,32 @@ class Medication(AnaforaEntity):
     def set_instructions(self, instructions: Iterable[Instruction]) -> None:
         self.instructions = list(instructions)
 
+    def set_frequencies(self, frequencies: Iterable[Frequency]) -> None:
+        self.frequencies = list(frequencies)
+
+    def set_dosages(self, dosages: Iterable[Dosage]) -> None:
+        self.dosages = list(dosages)
+
     def set_instruction_conditions(
         self, instruction_conditions: Iterable[InstructionCondition]
     ) -> None:
         self.instruction_conditions = list(instruction_conditions)
+
+    def set_attributes(self, attributes: list[MedicationAttribute]) -> None:
+        self.set_instructions(
+            attribute for attribute in attributes if isinstance(attribute, Instruction)
+        )
+        self.set_instruction_conditions(
+            attribute
+            for attribute in attributes
+            if isinstance(attribute, InstructionCondition)
+        )
+        self.set_frequencies(
+            attribute for attribute in attributes if isinstance(attribute, Frequency)
+        )
+        self.set_dosages(
+            attribute for attribute in attributes if isinstance(attribute, Dosage)
+        )
 
     def set_cui_str(self, cui_str: str) -> None:
         self.cui_str = cui_str
@@ -197,10 +288,10 @@ class AnaforaDocument:
 
     @staticmethod
     def order_entities(entities: Iterable[AnaforaEntity]) -> list[AnaforaEntity]:
-        def span(anafora_entity: AnaforaEntity) -> tuple[int, int]:
+        def __span(anafora_entity: AnaforaEntity) -> tuple[int, int]:
             return anafora_entity.span
 
-        ordered_entities = sorted(entities, key=span)
+        ordered_entities = sorted(entities, key=__span)
         # Anafora XML starts from 1 not 0
         for anafora_id, anafora_entity in enumerate(ordered_entities, start=1):
             anafora_entity.set_id(anafora_id)
