@@ -8,19 +8,17 @@ dynamic = ["version"]
 authors = [
     { name = "Health NLP Lab @ CHIP" },
 ]
-description = "Clinical Document Type Classification via fastText"
+description = "CRICO med agents"
 
 readme = "README.md"
 requires-python = ">=3.10"
-# dependencies = [
-#     "pandas>=2.0.0",
-#     "tika",
-#     "tabulate",
-#     "lxml",
-#     "more-itertools",
-#     "bs4",
-#     "fasttext @ git+https://github.com/facebookresearch/fastText.git"
-# ]
+dependencies = [
+    "pandas>=2.0.0",
+    "transformers",
+    "anaforatools",
+    "lxml",
+    "pytz"
+]
 
 classifiers = [
     "Programming Language :: Python :: 3.10",
@@ -57,8 +55,8 @@ dev = [
     "pre-commit",
 ]
 
-[project.scripts]
-"doctype" = "doctype.run_experiments:main"
+# [project.scripts]
+# "doctype" = "doctype.run_experiments:main"
 
 [tool.ruff]
 target-version = "py310"
